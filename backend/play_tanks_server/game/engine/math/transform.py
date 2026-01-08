@@ -6,9 +6,9 @@ from play_tanks_server.game.engine.math import Vec2, Vec2Array
 
 class Transform:
     """ A class representing a 3D transformation including position and rotation. """
-    def __init__(self, position: Optional[Vec2], direction: Optional[Vec2]):
+    def __init__(self, position: Optional[Vec2] = None, direction: Optional[Vec2] = None):
         self.position = Vec2(0, 0) if position is None else position
-        self.direction = (Vec2(0, 1) if direction is None else direction).normalised()
+        self.direction = (Vec2(0, 0) if direction is None else direction).normalised()
     
     def translated(self, vec: Vec2) -> Self:
         """ Translate the position by the given vector. """
@@ -48,7 +48,9 @@ class Transform:
     def apply(self, vectors: Vec2Array) -> Vec2Array: ...
     def apply(self, vector: Union[Vec2, Vec2Array]) -> Union[Vec2, Vec2Array]:
         """ Apply the transform to a point or array of points. """
-        rotated = vector.rotated(self.direction.normalised())
+        if self.direction.magnitude() == 0:
+            return vector.translated(self.position)
+        rotated = vector.rotated(self.direction)
         return rotated.translated(self.position)
 
     def __eq__(self, value):

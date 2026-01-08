@@ -7,16 +7,16 @@ from play_tanks_server.game.objects.collisions import Collision
 
 class HitBox(Collision):
     """ A simple hitbox class for collision detection. """
-    def __init__(self, width: float, height: float, anchor: Optional[Vec2] = None, **kwargs):
+    def __init__(self, width: float, length: float, anchor: Optional[Vec2] = None, height: float = 0.0, **kwargs):
         """ Initialise a HitBox from corner points or coordinates. """
         super().__init__(**kwargs)
-        x1, y1, x2, y2 = -width / 2, -height / 2, width / 2, height / 2
+        x1, y1, x2, y2 = width / 2, -length / 2, -width / 2, length / 2
 
         if anchor is None:
             anchor = Vec2(0, 0)
 
-        self.local = Rectangle(x1 + anchor.x, y1 + anchor.y, x2 + anchor.x, y2 + anchor.y)
-        self.height = height
+        self.local = Rectangle(x1 + anchor.x, y1 + anchor.y, x2 + anchor.x, y2 + anchor.y, height)
+        self.height = length
         self.width = width
 
     def world(self, transform: Transform) -> Rectangle:

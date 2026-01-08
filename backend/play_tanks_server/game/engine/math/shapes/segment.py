@@ -1,15 +1,15 @@
-from play_tanks_server.game.engine.math import Transform, Vec2
-from play_tanks_server.game.engine.math.shapes import Shape, T
+from play_tanks_server.game.engine.math import Transform, Vec2, Vec2Array
 
 
-# Should be vector array
-class Segment(Shape):
+class Segment(Vec2Array):
 
     def __init__(self, start: Vec2, end: Vec2):
         super().__init__([start, end])
-        direction = self.end - self.start
-        self.direction = direction.normalised()
-        self.length = direction.magnitude()
+        self.displacement = self.end - self.start
+        self.direction = self.displacement.normalised()
+        self.normal = Vec2(self.direction.y, -self.direction.x)
+        self.opposite_normal = self.normal * -1
+        self.length = self.displacement.magnitude()
 
     @property
     def start(self) -> Vec2:
@@ -18,20 +18,6 @@ class Segment(Shape):
     @property
     def end(self) -> Vec2:
         return self._vectors[1]
-    
-    def transform_from_start(self) -> Transform:
-        """ Returns a transform at the start of the segment. """
-        return Transform(
-            position=self.start.clone(),
-            direction=self.direction     
-        )
-    
-    def transform_from_end(self) -> Transform:
-        """ Returns a transform at the end of the segment. """
-        return Transform(
-            position=self.end.clone(),
-            direction=self.direction
-        )
 
     def __eq__(self, other):
         if not isinstance(other, Segment):
@@ -49,3 +35,8 @@ class Segment(Shape):
         points = sorted((self.start, self.end), key=lambda p: [p[i] for i in range(len(p))])
         return hash((*points[0], *points[1]))
 
+    def __repr__(self):
+        return str(self)
+
+    def __str__(self):
+        return f"Segment(Start: {self.start}, End: {self.end})"

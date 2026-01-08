@@ -1,5 +1,5 @@
 
-from play_tanks_server.models.stats import ProjectileStats
+from play_tanks_server.game.models.stats import ProjectileStats
 from play_tanks_server.game.objects import Entity, StaticEntity, DynamicEntity
 
 
@@ -13,7 +13,7 @@ class Projectile(DynamicEntity):
 
     def can_bounce(self) -> bool:
         """ Check if the projectile can bounce again. """
-        return self.bounce_count < self.stats.bounce_count
+        return self.bounce_count < self.stats.max_bounces
 
     def apply_damage(self, entity: Entity):
         """ Apply damage to the projectile. Destroys projectile. """

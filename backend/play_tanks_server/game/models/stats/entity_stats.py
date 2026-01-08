@@ -11,6 +11,7 @@ class EntityStats:
     Base class for entity stats.
     """
     width: float = 0.0
+    length: float = 0.0
     height: float = 0.0
     
     max_health: float = 100.0
@@ -18,9 +19,9 @@ class EntityStats:
 
     def create_hit_box(self, anchor: Optional[Vec2] = None) -> HitBox:
         """ Create the hitbox for the entity based on its stats. Override in subclasses. """
-        if self.width == 0.0 or self.height == 0.0:
+        if self.width == 0.0 or self.length == 0.0:
             return EmptyHitBox()
-        return HitBox(width=self.width, height=self.height, anchor=anchor)
+        return HitBox(width=self.width, length=self.length, anchor=anchor, height=self.height)
     
 
 @dataclass(frozen=True)

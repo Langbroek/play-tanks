@@ -1,6 +1,7 @@
 import uuid
 
 from play_tanks_server.core.log import Loggable
+from play_tanks_server.game.models.encoding import EncodedGameObject
 
 
 class GameObject(Loggable):
@@ -8,6 +9,10 @@ class GameObject(Loggable):
     def __init__(self):
         super().__init__()
         self.uid = str(uuid.uuid4())
+
+    def encode(self) -> EncodedGameObject:
+        """ Encoding representation of the object. """
+        return EncodedGameObject()
 
     def __eq__(self, value):
         if not isinstance(value, GameObject):

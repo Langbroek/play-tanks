@@ -2,7 +2,7 @@ from typing import Dict, Optional, List, Tuple, Generator, Union, Literal, overl
 
 from play_tanks_server.exceptions import (MaxPlayersReachedException, PlayerAlreadyInGameException, 
                                           PlayerNotFoundException)
-
+from play_tanks_server.game.engine.math import Vec2, Transform
 from play_tanks_server.game.objects import Player, Tank, Projectile
 from play_tanks_server.game.state.actions import ACTION_TYPE as A, Action, VectorAction
 
@@ -11,7 +11,7 @@ class PlayerGameState:
 
     def __init__(self, player: Player):
         self.player = player
-        self.tank = Tank()
+        self.tank = Tank(transform=Transform(player.spawn_position, Vec2(0, -1)))
         self.actions: Dict[A, Optional[Action]] = {
             A.MOVE: None,
             A.ROTATE: None,
@@ -31,6 +31,12 @@ class PlayerGameState:
         action = self.actions.get(action_type)
         self.actions[action_type] = None
         return action
+    
+    def set_action(self, action: Action):
+        """ Set the current action for the player. """
+        if action.type not in self.actions:
+            return
+        self.actions[action.type] = action
 
 
 class PlayerGameStates:

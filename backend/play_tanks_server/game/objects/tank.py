@@ -7,8 +7,8 @@ from play_tanks_server.game.models.stats import TankStats
 
 class Tank(DynamicEntity[TankStats]):
 
-    def __init__(self, local_pos: Vec2, transform: Transform, stats: TankStats = TankStats()):
-        super().__init__(local_pos=local_pos, transform=transform, stats=stats)
+    def __init__(self, stats: TankStats = TankStats(), **kwargs):
+        super().__init__(stats=stats, **kwargs)
         self.ammo_cooldown_timer = -1
         self.cannon_rotation = 0.0  # In degrees
         self.cannon_direction = self.transform.direction.clone() # Initial cannon direction

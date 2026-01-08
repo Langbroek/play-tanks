@@ -1,3 +1,3 @@
-from .shape import Shape, T
-from .rectangle import Rectangle
 from .segment import Segment
+from .shape import Shape
+from .rectangle import Rectangle

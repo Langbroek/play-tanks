@@ -59,13 +59,76 @@ class Vec2:
     def rotate(self, direction: Self):
         """ Rotates the vector by another vector (direction). """
         dx, dy = direction.normalised()
-        self._vector[0] = self.y * dx + self.x * dy
-        self._vector[1] = -self.x * dx + self.y * dy
+        if dx == 0 and dy == 0:
+            return
+        right_x = -dy
+        right_y = dx
+        self._vector[0] = self.x * right_x + self.y * dx
+        self._vector[1] = self.x * right_y + self.y * dy
 
     def rotated(self, direction: Self) -> Self:
         """ Returns a new vector that is the rotation of this vector by another vector (direction). """
         dx, dy = direction.normalised()
-        return Vec2(self.y * dx + self.x * dy, -self.x * dx + self.y * dy, self.z)
+        if dx == 0 and dy == 0:
+            return Vec2(data=self._data.copy())
+        right_x = -dy
+        right_y = dx
+        return Vec2(self.x * right_x + self.y * dx, self.x * right_y + self.y * dy, self.z)
+        # return Vec2(self.y * dx + self.x * dy, -self.x * dx + self.y * dy, self.z)
+    
+    def rotate_angle(self, angle: float, degrees: bool = True):
+        """ Rotates the vector by the given angle in place. """
+        if degrees:
+            angle = np.radians(angle)
+        cos_a = np.cos(angle)
+        sin_a = np.sin(angle)
+        x = self.x * cos_a - self.y * sin_a
+        y = self.x * sin_a + self.y * cos_a
+        self._vector[0] = x
+        self._vector[1] = y
+    
+    def rotated_angle(self, angle: float, degrees: bool = True) -> Self:
+        """ Returns a new vector that is this vector rotated by the given angle. """
+        if degrees:
+            angle = np.radians(angle)
+        cos_a = np.cos(angle)
+        sin_a = np.sin(angle)
+        x = self.x * cos_a - self.y * sin_a
+        y = self.x * sin_a + self.y * cos_a
+        return Vec2(x, y, self.z)
+
+    def rotate_90(self, count: int = 1):
+        """ Rotates this vector 90 degrees clockwise 'count' times in place. """
+        x, y = self._vector
+        count = count % 4
+        if count == 0:
+            return
+        elif count == 1:
+            self._vector[0] = y
+            self._vector[1] = -x
+        elif count == 2:
+            self._vector[0] = -x
+            self._vector[1] = -y
+        else:  # count == 3
+            self._vector[0] = -y
+            self._vector[1] = x
+
+    def rotated_90(self, count: int = 1) -> Self:
+        """ Returns a new vector that is this vector rotated 90 degrees clockwise 'count' times. """
+        x, y = self._vector
+        count = count % 4
+        if count == 0:
+            return Vec2(x, y, self.z)
+        elif count == 1:
+            return Vec2(y, -x, self.z)
+        elif count == 2:
+            return Vec2(-x, -y, self.z)
+        else:  # count == 3
+            return Vec2(-y, x, self.z)
+    
+    def to_degrees(self) -> float:
+        """ Returns the angle of the vector in degrees from the positive x-axis. """
+        return float(np.degrees(np.arctan2(self.x, self.y)))  # (x, y) for 0, 1 to be 0 degrees
 
     def magnitude(self) -> float:
         return float(np.linalg.norm(self._vector))
@@ -87,6 +150,14 @@ class Vec2:
     def clone(self) -> Self:
         """ Returns a copy of the vector. """
         return Vec2(data=self._data.copy())
+    
+    def cross(self, other: Self) -> float:
+        """ Returns the 2D cross product (scalar) of this vector and another. """
+        return self.x * other.y - self.y * other.x
+
+    def dot(self, other: Self) -> float:
+        """ Returns the dot product of this vector and another. """
+        return float(np.dot(self._vector, other._vector))
 
     def __len__(self) -> int:
         return 2
@@ -168,7 +239,12 @@ class Vec2:
         vec_str = f"Vec2(x={self.x}, y={self.y})"
         if self.z != 0.0:
             vec_str += f" at z={self.z}"
-        return vec_str  
+        return vec_str
+    
+    def __eq__(self, value: Self):
+        if not isinstance(value, Vec2):
+            return False
+        return value.x == self.x and value.y == self.y
 
 class Vec2Array(List[Vec2]):
     """ 
@@ -210,14 +286,11 @@ class Vec2Array(List[Vec2]):
     def translate(self, vector: Vec2):
         """ Translates all vectors by another vector. """
         self._data += vector._data
-        self._z_data += vector.z
 
     def translated(self, vector: Vec2) -> Self:
         """ Returns a new Vec2Array that is the translation of this array by another vector. """
         new_data = self._data + vector._data
-        new_z_data = self._z_data + vector.z
-        combined = np.hstack((new_data, new_z_data[:, np.newaxis]))
-        return Vec2Array(combined)
+        return self.from_array(new_data)
   
     def rotate(self, direction: Vec2):
         """ Rotates all vectors by another vector (direction). """
@@ -239,5 +312,20 @@ class Vec2Array(List[Vec2]):
         new_x = y * dx + x * dy
         new_y = -x * dx + y * dy
 
-        combined = np.hstack((new_x[:, np.newaxis], new_y[:, np.newaxis], self._z_data[:, np.newaxis]))
-        return Vec2Array(combined)
+        new_arr = self._data.copy()
+        new_arr[:, 0] = new_x
+        new_arr[:, 1] = new_y
+        return self.from_array(new_arr)
+    
+    @classmethod
+    def from_array(cls, array: np.ndarray) -> Self:
+        """ Creates a Vec2Array from a numpy array of shape (N, 2) or (N, 3). """
+        obj = cls.__new__(cls)
+        Vec2Array.__init__(obj, array)
+        return obj
+
+    def __mul__(self, value: float) -> Self:
+        new_data = self._data[:, 0:2] * value
+        new_arr = self._data.copy()
+        new_arr[:, 0:2] = new_data
+        return self.from_array(new_arr)

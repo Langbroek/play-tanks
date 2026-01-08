@@ -1,4 +1,3 @@
-import itertools
 import threading
 
 from typing import List
@@ -7,18 +6,18 @@ from typing_extensions import Self
 from play_tanks_server.core.log import with_function_logger
 from play_tanks_server.exceptions import GameAlreadyStartedException, with_exception_context
 
+from play_tanks_server.game.engine import CollisionGridHeap
 from play_tanks_server.game.engine.physics import engine as pe
-from play_tanks_server.game.objects import GameObject, Entity, Player, Projectile
-from play_tanks_server.game.state import PlayerGameStates, GameMap, CollisionHeap
-from play_tanks_server.game.state.actions import ACTION_TYPE as A
-
-
-MAX_COLLISION_ITERATIONS = 5
+from play_tanks_server.game.models.collisions import Intersections2D
+from play_tanks_server.game.models.encoding import EncodedGameWorld
+from play_tanks_server.game.objects import GameObject, Entity, Player, Projectile, Tank
+from play_tanks_server.game.state import PlayerGameStates, GameMap
+from play_tanks_server.game.state.actions import ACTION_TYPE as A, Action
 
 
 class GameWorld(GameObject):
 
-    def __init__(self, max_players: int = 16):
+    def __init__(self, map: GameMap, max_players: int = 16):
         super().__init__()
         self.init_logger()  # Initialise logger after GameObject init
         self._lock = threading.Lock()
@@ -26,8 +25,9 @@ class GameWorld(GameObject):
         self.entities: List[Entity] = []
 
         self.players = PlayerGameStates(max_players)
-        self.map = GameMap()
+        self.map = map
 
+        self.game_time = 0.0
         self.game_tick = -1
         
     @property
@@ -64,9 +64,13 @@ class GameWorld(GameObject):
 
     @with_world_lock
     @with_function_logger
-    def handle_player_action(self, player: Player, action):
+    def handle_player_action(self, player: Player, action: Action):
         """ Handle an action from a player. """
-        return
+        state = self.players.players.get(player)
+        if state is None:
+            self.logger.warning(f"Received action from unknown player {player}.")
+            return
+        state.set_action(action)
     
     @with_world_lock
     @with_function_logger(context="game_update", log_every_n=60)
@@ -82,14 +86,11 @@ class GameWorld(GameObject):
         ENTITY UPDATES
         """
         self.game_tick += 1
+        self.game_time += delta_time
         self._handle_tank_movement(delta_time)
-        self._handle_tank_on_map_collisions(delta_time)
-        self._handle_tanks_collisions(delta_time)
+        self._handle_entity_movement(delta_time)
         self._handle_tank_barrel_rotation(delta_time)
         self._handle_tank_shooting(delta_time)
-        self._handle_tank_projectile_movement(delta_time)
-        self._handle_tank_projectile_map_collisions(delta_time)
-        self._handle_tank_projectile_damage(delta_time)
         self._handle_entity_updates(delta_time)
         # self._handle_disconnections()
 
@@ -103,38 +104,71 @@ class GameWorld(GameObject):
             if action is None:
                 continue
             state.tank.set_direction(action.vector)
-            state.tank.advance(delta_time)
+            if action.vector.magnitude() > 0:
+                state.set_action(action)  # Re-set action for continuous movement
 
     @with_function_logger(context="game_update")
-    def _handle_tank_on_map_collisions(self, delta_time: float):
-        """ Handle movement collisions between entities. """
-        # First move all from illlegal map positions
-        for _ in range(MAX_COLLISION_ITERATIONS):
-            any_collision = False
-            for state in self.players.alive():
-                transform, hit = pe.resolve_static_tank_collision(state.tank, self.map)
-                if not hit:
-                    continue
-                any_collision = True
-                # Update tank position without changing rotation
-                state.tank.set_position(transform.position)
-            if not any_collision:
-                break
+    def _handle_entity_movement(self, delta_time: float):
+        """ Handle projectile movement. """
+        heap = CollisionGridHeap(cells_x=50, cells_y=50, delta_time=delta_time)
+        # First add all aabb with movement to the heap
+        for source in self.players.entities():
+            heap.add_entity(source)
+        # Add static map objects to the heap
+        for wall in self.map.walls:
+            heap.add_entity(wall, static=True)
+        # Resolve movements
+        while heap.has_events():
+            event = heap.pop_event()
+            source = event.entity
+            if source.is_destroyed:
+                continue
+            # Move entity to collision point
+            transform = event.transform
+            if transform is not None:
+                source.set_transform(transform)
+                heap.update_event_time(event)
+            else:
+                source.base_velocity()  # Reset to base velocity if no movement
+            # Apply damage
+            source_hit = False
+            for intersection in event.intersections:
+                intersection.target.apply_damage(source)
+                source.apply_damage(intersection.target)  # Take damage from target.
+                source_hit = True
+                
+            # Check if entity is alive otherwise stop
+            if source.is_destroyed:
+                continue
+            # Check if entity has remaining movement time
+            if 1 - event.time <= 0:
+                continue
+            # Recompute movement collision
+            if source_hit and isinstance(source, Projectile):
+                # Projectile should bounce on collision
+                transform = pe.calculate_bounce_transform(source, event.intersections)
+                source.set_transform(transform)
+            elif source_hit and isinstance(source, Tank):
+                # Tank should move in direction that is not stuck.
+                velocity = pe.calculate_tank_slide(source, heap.blocked_intersections(event))
+                source.set_velocity(velocity)
 
-    @with_function_logger(context="game_update")
-    def _handle_tanks_collisions(self, delta_time: float):
-        """ Handle movement collisions between entities. """
-        for _ in range(MAX_COLLISION_ITERATIONS):
-            any_collision = False
-            for state_a, state_b in itertools.combinations(self.players.alive(), 2):
-                tfm_a, tfm_b, hit = pe.resolve_tanks_collision(state_a.tank, state_b.tank, self.map)
-                if not hit:
-                    continue
-                any_collision = True
-                state_a.tank.set_position(tfm_a.position)
-                state_b.tank.set_position(tfm_b.position)
-            if not any_collision:
-                break
+            # Update aabb
+            heap.update_event_aabb(event)
+            # Find earliest intersection.
+            intersections = Intersections2D()
+            # Only check for collisions if entity is moving
+            if source.velocity.magnitude() > 0:
+                for target_event in heap.non_blocked_grid_events(event):
+                    intersection = pe.calculate_entity_intersection(source, target_event.entity, 
+                                                                    source_time=event.time,
+                                                                    target_time=target_event.time,
+                                                                    scalar=delta_time)
+                    intersections.add(intersection)
+            heap.update_event_intersections(event, intersections)
+            heap.insert_event(event)
+            # If we hit something, recompute all events that relied on this entity
+            heap.recompute_events(event, source_hit)  
 
     @with_function_logger(context="game_update")
     def _handle_tank_barrel_rotation(self, delta_time: float):
@@ -155,53 +189,22 @@ class GameWorld(GameObject):
             state.tank.fire()
 
     @with_function_logger(context="game_update")
-    def _handle_tank_projectile_collisions(self, delta_time: float):
-        """ Handle tank damage calculation from projectiles. """
-        collisions = CollisionHeap()
-        for projectile in self.players.projectiles():
-            collision = pe.resolve_projectile_collision(projectile, self.players.entities(), 
-                                                        self.map, delta_time)
-            collisions.add(collision)
-        while not collisions.is_empty():
-            event = collisions.pop()
-            projectile: Projectile = event.source
-
-            if projectile.is_destroyed:
-                continue
-            
-            # Move projectile to collision point
-            projectile.advance(event.distance * delta_time)
-
-            # Only apply damage if the event doesnt require a new collision computation
-            if not event.recompute:
-                # Apply damage
-                target = event.target
-                if not target.is_destroyed:
-                    target.apply_damage(projectile)
-                    projectile.apply_damage(target)  # Take damage from target.
-                    if projectile.is_destroyed:
-                        continue  # Stop the projectile if destroyed
-                
-                if isinstance(target, GameMap):
-                    # Rotate the projectile direction based on collision normal
-                    direction = pe.calculate_bounce_direction(projectile, event.collision_normal)
-                    projectile.set_direction(direction)
-                    collisions.recompute_target(projectile)
-            
-            if 1 - event.distance <= 0:
-                continue  # No time left to process further collisions this tick
-
-            collision = pe.resolve_projectile_collision(projectile, self.players.entities(), 
-                                                        self.map, (1 - event.distance) * delta_time)
-            collisions.add(collision)
-
-    @with_function_logger(context="game_update")
     def _handle_entity_updates(self, delta_time: float):
         """ Handle entity updates. """
         for state in self.players:  # Iterate over all players, including destroyed ones
             state.tank.update()
+            state.tank.clear_velocity()  # stop movement until user input.
             state.is_alive = not state.tank.is_destroyed
 
-
-    
-
+    @with_function_logger(context="game_encoding")
+    def encode(self) -> EncodedGameWorld:
+        """ Convert the game world state to serialisable game data. """
+        return EncodedGameWorld(
+            uid=self.uid,
+            started=self.started,
+            tick=self.game_tick,
+            time=self.game_time,
+            map_size=self.map.size,
+            players=[state.player.encode() for state in self.players],
+            entities=[wall.encode() for wall in self.map.walls] + [entity.encode() for entity in self.players.entities()]
+        )

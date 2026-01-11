@@ -23,11 +23,18 @@ class CollisionEvent(Generic[T]):
     @property
     def time_at_intersection(self) -> float:
         """ Returns the time until intersection occurs. """
-        if self.intersections is not None:
-            return self.intersections.time
-        return -1.0
+        return self.intersections.time
+    
+    @property
+    def stale(self) -> bool:
+        """ Returns if the collision intersection is stale. """
+        if self.time < 0:
+            return True
+        return self.time_at_intersection == self.time
 
     def __lt__(self, other: Self) -> bool:
+        if self.time_at_intersection == other.time_at_intersection:
+            return self.time < other.time
         return self.time_at_intersection < other.time_at_intersection
     
     def __eq__(self, other: object) -> bool:

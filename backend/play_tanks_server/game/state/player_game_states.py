@@ -14,7 +14,7 @@ class PlayerGameState:
         self.tank = Tank(transform=Transform(player.spawn_position, Vec2(0, -1)))
         self.actions: Dict[A, Optional[Action]] = {
             A.MOVE: None,
-            A.ROTATE: None,
+            A.AIM: None,
             A.SHOOT: None,
             A.BOMB: None
         }
@@ -22,7 +22,7 @@ class PlayerGameState:
         self.is_alive: bool = True
 
     @overload
-    def pop_action(self, action_type: Literal[A.MOVE, A.ROTATE]) -> Optional[VectorAction]: ...
+    def pop_action(self, action_type: Literal[A.MOVE, A.AIM]) -> Optional[VectorAction]: ...
     @overload
     def pop_action(self, action_type: Literal[A.SHOOT, A.BOMB]) -> Optional[Action]: ...
 

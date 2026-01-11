@@ -45,7 +45,7 @@ class CollisionGridHeap:
         """ Insert an event back into the heap. """
         heapq.heappush(self._heap, event)
 
-    def recompute_events(self, source_event: CollisionEvent[DynamicEntity], event_hit: bool = False):
+    def recompute_events(self, source_event: CollisionEvent[DynamicEntity], event_type: str = 'hit'):
         """ 
         All events that depend on this entity need to be recomputed if event has hit. 
         Also clears all blocked collisions for this entity. 
@@ -56,10 +56,8 @@ class CollisionGridHeap:
                 continue
             # Only compute if event hit and target is events's entity
             # Or if the source event blocks this event's entity
-            if (
-                (event_hit and event.intersections.includes(source_event.entity)) or 
-                (self._clear_blocked_intersections(event, source_event))
-            ):
+            if ((event_type == 'hit' and event.intersections.includes(source_event.entity) or
+                 event_type == 'block' and self._clear_blocked_intersections(event, source_event))):
                 event.intersections.clear()
                 event.transform = None
                 modified = True
@@ -148,6 +146,8 @@ class CollisionGridHeap:
         Based on target entity, remove all blocked events for the source that might have been 
         blocked by target.
         """
+        if target.stale:
+            return False
         blocked = self._blocked_intersections.get(source, [])
         if len(blocked) == 0:
             return False

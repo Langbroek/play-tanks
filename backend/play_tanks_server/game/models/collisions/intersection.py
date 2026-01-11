@@ -34,9 +34,9 @@ class Intersection2D:
 class Intersections2D(List[Intersection2D]):
     """ Collection of 2D intersections for an entity. """
     
-    def __init__(self):
+    def __init__(self, initial_time: float = -1.0):
         super().__init__()
-        self.time = 1.0
+        self.time = initial_time
     
     def add(self, intersection: Intersection2D):
         """ Adds an intersection to the collection. """
@@ -51,7 +51,7 @@ class Intersections2D(List[Intersection2D]):
     def clear(self):
         """ Clears all intersections. """
         super().clear()
-        self.time = 1.0
+        self.time = -1.0 
     
     def includes(self, entity: Entity) -> bool:
         """ Checks if the collection includes an intersection with the given entity. """

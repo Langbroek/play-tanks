@@ -10,7 +10,6 @@ class Tank(DynamicEntity[TankStats]):
     def __init__(self, stats: TankStats = TankStats(), **kwargs):
         super().__init__(stats=stats, **kwargs)
         self.ammo_cooldown_timer = -1
-        self.cannon_rotation = 0.0  # In degrees
         self.cannon_direction = self.transform.direction.clone() # Initial cannon direction
         self.projectiles: List[Projectile] = []
 
@@ -18,10 +17,9 @@ class Tank(DynamicEntity[TankStats]):
         """ Check if the cannon is on cooldown. """
         return 0 <= self.ammo_cooldown_timer < self.stats.ammo_cooldown
 
-    def aim(self, target_position: Vec2, scalar: float = -1):
+    def aim(self, direction: Vec2):
         """ Aim the tank's cannon/barrel towards a target position. """
-        direction = (target_position - self.transform.position).normalised()
-        self.cannon_direction = direction
+        self.cannon_direction = direction.normalised()
 
     def fire(self):
         """ Fire a projectile if ammo is available. """
@@ -29,13 +27,14 @@ class Tank(DynamicEntity[TankStats]):
             return  # No ammo available
         if self.is_cannon_on_cooldown():
             return  # Still in cooldown
-
+        radius = (2 * ((max(self.stats.width, self.stats.height) / 2) ** 2)) ** 0.5
         projectile = Projectile(
             stats=self.stats.projectile_stats,
+            direction=self.cannon_direction,
             transform=Transform(
                 position=self.transform.position,
                 direction=self.cannon_direction
-            )
+            ).advanced(radius)
         )
         self.projectiles.append(projectile)
 
@@ -53,3 +52,10 @@ class Tank(DynamicEntity[TankStats]):
             projectile.update()
 
         return super().update()
+
+    def encode(self):
+        encoding = super().encode()
+        encoding.data.update({
+            'cannon_rotation': self.cannon_direction.to_degrees()
+        })
+        return encoding

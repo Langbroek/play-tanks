@@ -128,6 +128,7 @@ class GameWorld(GameObject):
             if transform is not None:
                 source.set_transform(transform)
                 heap.update_event_time(event)
+                heap.recompute_events(event, 'block')
             else:
                 source.base_velocity()  # Reset to base velocity if no movement
             # Apply damage
@@ -136,7 +137,7 @@ class GameWorld(GameObject):
                 intersection.target.apply_damage(source)
                 source.apply_damage(intersection.target)  # Take damage from target.
                 source_hit = True
-                
+
             # Check if entity is alive otherwise stop
             if source.is_destroyed:
                 continue
@@ -146,8 +147,8 @@ class GameWorld(GameObject):
             # Recompute movement collision
             if source_hit and isinstance(source, Projectile):
                 # Projectile should bounce on collision
-                transform = pe.calculate_bounce_transform(source, event.intersections)
-                source.set_transform(transform)
+                velocity = pe.calculate_bounce_velocity(source, event.intersections)
+                source.set_velocity(velocity)
             elif source_hit and isinstance(source, Tank):
                 # Tank should move in direction that is not stuck.
                 velocity = pe.calculate_tank_slide(source, heap.blocked_intersections(event))
@@ -156,7 +157,7 @@ class GameWorld(GameObject):
             # Update aabb
             heap.update_event_aabb(event)
             # Find earliest intersection.
-            intersections = Intersections2D()
+            intersections = Intersections2D(1.0)
             # Only check for collisions if entity is moving
             if source.velocity.magnitude() > 0:
                 for target_event in heap.non_blocked_grid_events(event):
@@ -164,20 +165,23 @@ class GameWorld(GameObject):
                                                                     source_time=event.time,
                                                                     target_time=target_event.time,
                                                                     scalar=delta_time)
+                    
                     intersections.add(intersection)
             heap.update_event_intersections(event, intersections)
-            heap.insert_event(event)
             # If we hit something, recompute all events that relied on this entity
-            heap.recompute_events(event, source_hit)  
+            if source_hit:
+                heap.recompute_events(event, 'hit')  
+            heap.insert_event(event)
+
 
     @with_function_logger(context="game_update")
     def _handle_tank_barrel_rotation(self, delta_time: float):
         """ Handle tank barrel rotation actions. """
         for state in self.players.alive():
-            action = state.pop_action(A.ROTATE)
+            action = state.pop_action(A.AIM)
             if action is None:
                 continue
-            state.tank.aim(action.vector, delta_time)
+            state.tank.aim(action.vector)
 
     @with_function_logger(context="game_update") 
     def _handle_tank_shooting(self, delta_time: float):

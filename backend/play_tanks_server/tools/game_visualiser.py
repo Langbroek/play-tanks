@@ -11,7 +11,7 @@ from play_tanks_server.game.engine.math import Vec2
 from play_tanks_server.game.models.encoding import EncodedGameWorld, EncodedEntity
 from play_tanks_server.game.objects import Entity, Player
 from play_tanks_server.game.state import GameMap, GameWorld
-from play_tanks_server.game.state.actions import ACTION_TYPE as A, VectorAction
+from play_tanks_server.game.state.actions import ACTION_TYPE as A, VectorAction, Action
 
 
 def random_colour() -> QColor:
@@ -66,12 +66,13 @@ class GameCanvas(QWidget):
         super().__init__()
         self.setFixedSize(*game.map.size)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.setMouseTracking(True)
         self.game = game
         self.player = player
         self._size = game.map.size
         self._data = None
         self._keys_down = set()
-
+        self._tank_canvas_pos = None
         self._colours = {'tank': QColor(200, 50, 100)}
     
     def to_canvas_x(self, x: float) -> int:
@@ -109,6 +110,14 @@ class GameCanvas(QWidget):
         painter.setPen(QPen(QColor(50, 200, 100), 2))
         painter.drawLine(0, 0, 0, -int(entity.length * 2))
 
+        # draw cannon barrel
+        barrel_rotation = entity.data.get('cannon_rotation', 0.0)
+        painter_rotation = entity.rotation - barrel_rotation
+        if painter_rotation != 0:
+            painter.rotate(-painter_rotation)
+        painter.setPen(QPen(QColor(100, 100, 250), 10))
+        painter.drawLine(0, 0, 0, -int(entity.length * .75))
+
         painter.restore()
     
     def paintEvent(self, a0):
@@ -123,6 +132,12 @@ class GameCanvas(QWidget):
 
     def draw_game(self, data: EncodedGameWorld):
         self._data = data
+        for entity in data.entities:
+            if entity.type == 'Tank':
+                self._tank_canvas_pos = (
+                    self.to_canvas_x(entity.x),
+                    self.to_canvas_y(-entity.y)
+                )
         self.update()
 
     def move_tank(self):
@@ -138,18 +153,44 @@ class GameCanvas(QWidget):
         # Send action to game loop
         self.game.handle_player_action(self.player, VectorAction(direction, A.MOVE, self.player))
 
+    def rotate_barrel(self):
+        if self._tank_canvas_pos is None or self._mouse_canvas_pos is None:
+            return
+        tank_x, tank_y = self._tank_canvas_pos
+        mouse_x, mouse_y = self._mouse_canvas_pos
+        direction = Vec2(mouse_x - tank_x, tank_y - mouse_y)
+        # Send aim action to game loop
+        self.game.handle_player_action(self.player, VectorAction(direction, A.AIM, self.player))
+
+    def shoot(self):
+        self.game.handle_player_action(self.player, Action(A.SHOOT, self.player))
+
     def keyPressEvent(self, event):
         key = event.key()
         if key not in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down):
             return
         self._keys_down.add(key)
         self.move_tank()
+        self.rotate_barrel()
     
     def keyReleaseEvent(self, event):
         key = event.key()
         if key in self._keys_down:
             self._keys_down.remove(key)
         self.move_tank()
+        self.rotate_barrel()
+
+    def mouseMoveEvent(self, event):
+        if self._tank_canvas_pos is None:
+            return super().mouseMoveEvent(event)
+        x, y = event.x(), event.y()
+        self._mouse_canvas_pos = (x, y)
+        self.rotate_barrel()
+        return super().mouseMoveEvent(event)
+    
+    def mousePressEvent(self, a0):
+        self.shoot()
+        return super().mousePressEvent(a0)
 
 
 class GameVisualiser(QWidget):

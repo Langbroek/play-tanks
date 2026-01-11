@@ -11,12 +11,15 @@ from play_tanks_server.game.state import GameMap
 BASE_EPS = 1e-9
 
 
-def calculate_bounce_transform(entity: DynamicEntity, intersection: Intersection2D) -> Transform:
+def calculate_bounce_velocity(entity: DynamicEntity, intersections: List[Intersection2D]) -> Vec2:
     """ Rotates the given entity's transform to reflect off the collision surface. """
-    normal = intersection.hull.normal
     direction = entity.direction.normalised()
-    reflected_direction = direction - normal * 2 * direction.dot(normal)
-    return Transform(position=entity.position, direction=reflected_direction)
+    for hull in [hull for inter in intersections for hull in inter.hulls]:
+        if direction.dot(hull.normal) >= 0:
+            continue  # Not colliding with this hull
+        normal = hull.normal
+        direction = direction - normal * 2 * direction.dot(normal)
+    return direction
 
 
 def segment_is_colinear(seg_a: Segment, seg_b: Segment, eps: float = BASE_EPS) -> bool:
@@ -204,6 +207,7 @@ def point_intersects_segment_2d(point: Vec2, segment: Segment, velocity: Vec2, e
 def illegal_intersection_2d(source: Rectangle, target: Rectangle) -> Optional[Intersection2D]:
     """ Returns the intersection event if a source segment intersects the target rectangle. """
     hulls = []
+    front_illegal = False
     for t_hull in target.hulls():
         for s_hull in [source.front(), source.left(), source.right()]:
             if t_hull in hulls:
@@ -221,7 +225,9 @@ def illegal_intersection_2d(source: Rectangle, target: Rectangle) -> Optional[In
             if not near_range(u, 0, 1, inclusive=True):
                 continue
             hulls.append(t_hull)
-    if len(hulls) > 0:
+            if s_hull == source.front():
+                front_illegal = True
+    if len(hulls) > 0 and front_illegal:
         return Intersection2D(
             time=0.0,
             hulls=hulls,

@@ -80,7 +80,7 @@ class Entity(GameObject, Generic[S]):
 
     def update(self):
         """ Update the entity's state. Override in subclasses if needed. """
-        self.is_spawned = False
+        self.is_spawned = True
 
     def encode(self):
         return EncodedEntity(

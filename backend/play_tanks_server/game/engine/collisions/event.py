@@ -4,7 +4,7 @@ from typing_extensions import Self, TypeVar
 
 from play_tanks_server.game.engine.math import Transform
 from play_tanks_server.game.engine.math.shapes import Rectangle
-from play_tanks_server.game.models.collisions import Intersections2D
+from play_tanks_server.game.engine.collisions import Intersections2D
 from play_tanks_server.game.objects import Entity
 
 

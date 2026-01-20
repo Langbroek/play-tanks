@@ -92,6 +92,13 @@ class Rectangle(Shape):
         x_max, y_max = self._data[:, 0:2].max(axis=0)
         return Rectangle(x_min, y_max, x_max, y_min)  # Note: y_max is top, y_min is bottom
     
+    def radius(self) -> float:
+        """ Returns the radius of the rectangle (half the diagonal). """
+        width = self.width
+        length = self.length
+        diagonal = (width ** 2 + length ** 2) ** 0.5
+        return diagonal / 2
+
     def expand(self, size: Vec2):
         """ Expands the aabb by the given size based on signs. """
         if size.x > 0:

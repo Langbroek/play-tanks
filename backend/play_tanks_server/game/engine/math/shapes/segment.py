@@ -1,4 +1,4 @@
-from play_tanks_server.game.engine.math import Transform, Vec2, Vec2Array
+from play_tanks_server.game.engine.math import Vec2, Vec2Array
 
 
 class Segment(Vec2Array):

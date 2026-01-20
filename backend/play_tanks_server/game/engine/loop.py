@@ -25,6 +25,8 @@ class GameLoop(GameObject):
             self._on_update(self.game.encode())
 
     def start(self):
+        import debugpy
+        debugpy.debug_this_thread()
         self.running = True
         while self.running:
             start = time.perf_counter()

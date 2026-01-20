@@ -13,7 +13,7 @@ class ProjectileStats(DynamicStats):
     height: float = 0.0
     max_health: float = 1.0
     damage: float = 1000
-    velocity: float = 200.0
+    velocity: float = 600.0
     rotation_speed: float = 0.0
     max_bounces: int = 3
     explosion_radius: float = 0.0

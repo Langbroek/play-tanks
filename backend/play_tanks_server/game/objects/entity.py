@@ -19,7 +19,7 @@ class Entity(GameObject, Generic[S]):
                  transform: Optional[Transform] = None,
                  velocity: Optional[Vec2] = None,
                  stats: S = EntityStats(),
-                 parent: Optional[Self] = None):
+                 parent: Optional[GameObject] = None):
         super().__init__()
         self.stats = stats
         self.parent = parent

@@ -56,6 +56,7 @@ class Tank(DynamicEntity[TankStats]):
     def encode(self):
         encoding = super().encode()
         encoding.data.update({
-            'cannon_rotation': self.cannon_direction.to_degrees()
+            'cannon_rotation': self.cannon_direction.to_degrees(),
+            'player_id': self.parent.uid if self.parent else None
         })
         return encoding

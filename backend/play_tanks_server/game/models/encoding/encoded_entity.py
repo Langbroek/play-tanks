@@ -6,6 +6,7 @@ from play_tanks_server.game.models.encoding import EncodedGameObject
 @dataclass(frozen=True)
 class EncodedEntity(EncodedGameObject):
     """ Serialisable entity data for visualisation. """
+    uid: str
     type: str
     x: float
     y: float

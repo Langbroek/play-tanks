@@ -3,7 +3,7 @@ from typing import Dict, Iterator, List, Union, overload
 
 from play_tanks_server.game.engine.math import Vec2
 from play_tanks_server.game.engine.math.shapes import Rectangle
-from play_tanks_server.game.models.collisions import Intersection2D, Intersections2D, CollisionEvent
+from play_tanks_server.game.engine.collisions import Intersection2D, Intersections2D, CollisionEvent
 from play_tanks_server.game.objects.entity import Entity, DynamicEntity
 
 

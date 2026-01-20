@@ -12,7 +12,7 @@ class TankStats(DynamicStats):
     length: float = 50.0
     max_health: float = 100.0
 
-    velocity: float = 100.0
+    velocity: float = 200.0
     rotation_speed: float = 0.0
     armour: float = 0.0
 

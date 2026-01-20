@@ -6,13 +6,13 @@ from typing_extensions import Self
 from play_tanks_server.core.log import with_function_logger
 from play_tanks_server.exceptions import GameAlreadyStartedException, with_exception_context
 
-from play_tanks_server.game.engine import CollisionGridHeap
+from play_tanks_server.game.engine.collisions import Intersections2D, CollisionGridHeap
 from play_tanks_server.game.engine.physics import engine as pe
-from play_tanks_server.game.models.collisions import Intersections2D
+from play_tanks_server.game.engine.math import Vec2
 from play_tanks_server.game.models.encoding import EncodedGameWorld
-from play_tanks_server.game.objects import GameObject, Entity, Player, Projectile, Tank
+from play_tanks_server.game.objects import GameObject, Entity, Player, Projectile, Tank, PlayerAI
 from play_tanks_server.game.state import PlayerGameStates, GameMap
-from play_tanks_server.game.state.actions import ACTION_TYPE as A, Action
+from play_tanks_server.game.state.actions import ACTION_TYPE as A, Action, VectorAction
 
 
 class GameWorld(GameObject):
@@ -20,9 +20,9 @@ class GameWorld(GameObject):
     def __init__(self, map: GameMap, max_players: int = 16):
         super().__init__()
         self.init_logger()  # Initialise logger after GameObject init
+        self._encoded = None
         self._lock = threading.Lock()
         self.max_players = max_players
-        self.entities: List[Entity] = []
 
         self.players = PlayerGameStates(max_players)
         self.map = map
@@ -54,6 +54,12 @@ class GameWorld(GameObject):
         if self.started:
             raise GameAlreadyStartedException(f"{player} tried to join a started game.")
         self.players.add(player)
+        # For now do this here
+        if isinstance(player, PlayerAI):
+            player.computer.initialise(
+                self.players.players[player].tank,
+                self.map.network
+            )
 
     @with_world_lock
     @with_exception_context
@@ -87,11 +93,13 @@ class GameWorld(GameObject):
         """
         self.game_tick += 1
         self.game_time += delta_time
+        self._encoded = None  # Invalidate cached encoded state
         self._handle_tank_movement(delta_time)
         self._handle_entity_movement(delta_time)
         self._handle_tank_barrel_rotation(delta_time)
         self._handle_tank_shooting(delta_time)
         self._handle_entity_updates(delta_time)
+        self._handle_ai_players(delta_time)
         # self._handle_disconnections()
 
     # Private functions assume the world lock is held.
@@ -200,15 +208,32 @@ class GameWorld(GameObject):
             state.tank.clear_velocity()  # stop movement until user input.
             state.is_alive = not state.tank.is_destroyed
 
-    @with_function_logger(context="game_encoding")
+    @with_function_logger(context="game_ai")
+    def _handle_ai_players(self, delta_time: float):
+        """ Handle AI player actions. """
+        for state in self.players.alive():
+            player = state.player
+            if not isinstance(player, PlayerAI):
+                continue
+            player.computer.update([t for t in self.players.tanks() if t != state.tank])
+            direction = player.computer.target_direction()
+            state.set_action(VectorAction(direction, A.MOVE, player))
+                
+
     def encode(self) -> EncodedGameWorld:
         """ Convert the game world state to serialisable game data. """
-        return EncodedGameWorld(
-            uid=self.uid,
-            started=self.started,
-            tick=self.game_tick,
-            time=self.game_time,
-            map_size=self.map.size,
-            players=[state.player.encode() for state in self.players],
-            entities=[wall.encode() for wall in self.map.walls] + [entity.encode() for entity in self.players.entities()]
-        )
+        if self._encoded is None:
+            self._encoded = EncodedGameWorld(
+                uid=self.uid,
+                started=self.started,
+                tick=self.game_tick,
+                time=self.game_time,
+                map_size=self.map.size,
+                players=[state.player.encode() for state in self.players],
+                entities=[
+                    wall.encode() for wall in self.map.walls
+                ] + [
+                    entity.encode() for entity in self.players.entities()
+                ]
+            )
+        return self._encoded

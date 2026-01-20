@@ -2,9 +2,11 @@ import numpy as np
 
 from typing import List, Tuple
 
+from play_tanks_server.game.engine.algorithm import WaypointNetwork
+from play_tanks_server.game.engine.algorithm.clusters import array_to_rectangles
 from play_tanks_server.game.engine.math import Vec2
-from play_tanks_server.game.engine.math.shapes import Segment
-from play_tanks_server.game.engine.math.clusters import array_to_rectangles
+from play_tanks_server.game.engine.math.shapes import Rectangle, Segment
+from play_tanks_server.game.engine.physics import engine as pe
 from play_tanks_server.game.objects import Wall
 
 
@@ -18,13 +20,17 @@ class GameMap:
         self._map = input_array
         self._scale = scale
         self.cannon_height = cannon_height
-
         self._initialise_collisions()
+        self.network = WaypointNetwork((((self._scale ** 2) * 2) ** .5) / 2, self.hulls(), self.corners)
 
     @property
     def size(self) -> Tuple[int, int]:
         """ Return the size of the map in pixels. """
         return int(self._map.shape[1] * self._scale), int(self._map.shape[0] * self._scale)
+    
+    def hulls(self) -> List[Segment]:
+        """ Returns all wall hulls for collision detection. """
+        return [hull for wall in self.walls for hull in wall.hit_box.hulls()]
 
     def _initialise_collisions(self):
         """
@@ -34,6 +40,7 @@ class GameMap:
         self.walls.clear()
         offset = Vec2(-self._map.shape[1] / 2, -self._map.shape[0] / 2)
         scale = Vec2(self._scale, -self._scale)  # Invert y-axis
+        self.aabb = Rectangle(offset.x, offset.y, -offset.x, -offset.y) * scale
 
         low_obstacles = (self._map > 0) & (self._map <= self.cannon_height)
         high_obstacles = self._map > self.cannon_height
@@ -41,6 +48,8 @@ class GameMap:
             contours = array_to_rectangles(obstacle_array)
             self.walls.extend([Wall(rect.translated(offset) * scale, low_flag) 
                                     for rects in contours.values() for rect in rects])
+            
+        self.corners = pe.calculate_map_concave_corners(self.walls, self.aabb)
 
 
 def main():

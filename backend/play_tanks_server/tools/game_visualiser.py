@@ -1,4 +1,3 @@
-import debugpy
 import random
 import sys
 
@@ -9,7 +8,7 @@ from PyQt5.QtWidgets import QWidget, QApplication, QHBoxLayout, QVBoxLayout, QPu
 from play_tanks_server.game.engine.loop import GameLoop
 from play_tanks_server.game.engine.math import Vec2
 from play_tanks_server.game.models.encoding import EncodedGameWorld, EncodedEntity
-from play_tanks_server.game.objects import Entity, Player
+from play_tanks_server.game.objects import Entity, Player, PlayerAI
 from play_tanks_server.game.state import GameMap, GameWorld
 from play_tanks_server.game.state.actions import ACTION_TYPE as A, VectorAction, Action
 
@@ -37,6 +36,7 @@ class QGameLoop(QRunnable):
         self.game_loop = GameLoop(game=game, on_update=self._on_update)
         self.player = Player('Earl', Vec2(100, 0))
         self.game_loop.game.join(self.player)
+        self.game_loop.game.join(PlayerAI('Bot 1', spawn=Vec2(-200, 0), mode='easy'))
 
     def start(self):
         if self.game_loop.running:
@@ -54,7 +54,6 @@ class QGameLoop(QRunnable):
         print('move player')
 
     def run(self):
-        debugpy.debug_this_thread()
         self.game_loop.start()
 
     def _on_update(self, data: EncodedGameWorld):
@@ -73,7 +72,8 @@ class GameCanvas(QWidget):
         self._data = None
         self._keys_down = set()
         self._tank_canvas_pos = None
-        self._colours = {'tank': QColor(200, 50, 100)}
+        self._colours = {}
+        self._waypoints = {}
     
     def to_canvas_x(self, x: float) -> int:
         return int(x + (self._size[0] / 2))
@@ -81,15 +81,14 @@ class GameCanvas(QWidget):
     def to_canvas_y(self, y: float) -> int:
         return int(y + (self._size[1] / 2))
 
-    def draw_rotated_rect(self, painter: QPainter, entity: EncodedEntity, idx: int):
+    def draw_rotated_rect(self, painter: QPainter, entity: EncodedEntity):
         painter.save()
 
         #painter.translate(-cx, -cy)
         #painter.rotate(angle)
         painter.setPen(Qt.NoPen)
 
-        key = 'tank' if entity.type == 'Tank' else idx
-        colour = self._colours.setdefault(key, random_colour())
+        colour = self._colours.setdefault(entity.uid, random_colour())
 
         painter.setBrush(colour)
         painter.translate(self.to_canvas_x(entity.x), self.to_canvas_y(-entity.y))
@@ -119,6 +118,28 @@ class GameCanvas(QWidget):
         painter.drawLine(0, 0, 0, -int(entity.length * .75))
 
         painter.restore()
+
+    def draw_waypoints(self, painter: QPainter):
+        painter.save()
+        for uid, player_waypoints in self._waypoints.items():
+            # Draw paths
+            painter.setPen(self._colours.setdefault(uid, random_colour()))
+            for source, target, cost in player_waypoints['paths']:
+                painter.drawLine(int(source.x), int(source.y), int(target.x), int(target.y))
+            # Draw positions
+            painter.setBrush(self._colours.setdefault(uid, random_colour()))
+            for pos_name, pos in player_waypoints['positions'].items():
+                painter.drawEllipse(int(pos.x) - 5, int(pos.y) - 5, 10, 10)
+                painter.drawText(int(pos.x) + 5, int(pos.y) - 5, pos_name)
+            for target_name, idx, target_pos in player_waypoints['targets']:
+                if target_pos is None:
+                    continue
+                painter.setBrush(QColor(255, 0, 0))
+                size = 17 + (idx * 2)
+                painter.drawEllipse(int(target_pos.x) - 7, int(target_pos.y) - 7, size, size)
+                painter.drawText(int(target_pos.x) + 5, int(target_pos.y) + 5, 'T_' + str(idx))
+
+        painter.restore()
     
     def paintEvent(self, a0):
         if self._data is None:
@@ -126,18 +147,36 @@ class GameCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        for idx, entity in enumerate(self._data.entities):
-            self.draw_rotated_rect(painter, entity, idx)
+        for entity in self._data.entities:
+            self.draw_rotated_rect(painter, entity)
+
+        self.draw_waypoints(painter)
+
         painter.end()
 
     def draw_game(self, data: EncodedGameWorld):
         self._data = data
         for entity in data.entities:
-            if entity.type == 'Tank':
+            if entity.type == 'Tank' and entity.data.get('player_id') == self.player.uid:
                 self._tank_canvas_pos = (
                     self.to_canvas_x(entity.x),
                     self.to_canvas_y(-entity.y)
                 )
+        for player in data.players:
+            if 'waypoints' in player.data:
+                data = self._waypoints[player.uid] = {'positions': {}, 'paths': [], 'targets': []}
+                for wp_name, wp_pos in player.data['waypoints']:
+                    data['positions'][wp_name] = Vec2(self.to_canvas_x(wp_pos.x), 
+                                                      self.to_canvas_y(-wp_pos.y))
+                for source, target, cost in player.data.get('paths', []):
+                    source = data['positions'].get(source)
+                    target = data['positions'].get(target)
+                    if source and target:
+                        data['paths'].append((source, target, cost))
+                for idx, target_wp_name in enumerate(player.data.get('targets', [])):
+                    data['targets'].append((target_wp_name, idx, data['positions'].get(target_wp_name)))
+
+
         self.update()
 
     def move_tank(self):
@@ -225,7 +264,44 @@ class GameVisualiser(QWidget):
     def _on_game_update(self, data: EncodedGameWorld):
         # Handle the updated game world data (e.g., render it)
         self.canvas.draw_game(data)
-        
+
+
+def jitter_map(grid, p_block=0.08, p_soft=0.1, seed=None):
+    """
+    grid     : list[list[float|int]] or np.ndarray
+    p_block  : probability to turn 0 -> 1
+    p_soft   : probability to turn 0 -> 0.2
+    """
+    rng = np.random.default_rng(seed)
+
+    grid = np.asarray(grid, dtype=float)
+    out = grid.copy()
+
+    h, w = out.shape
+
+    # Mask for interior cells (exclude border)
+    interior = np.zeros_like(out, dtype=bool)
+    interior[1:h-1, 1:w-1] = True
+
+    # Only affect empty cells
+    empty = (out == 0) & interior
+
+    # Random values for empty interior cells
+    r = rng.random(out.shape)
+
+    # Apply jitter
+    out[(r < p_block) & empty] = 1
+    out[(r >= p_block) & (r < p_block + p_soft) & empty] = 0.2
+
+    # Force border to walls (safety)
+    out[0, :]  = 1
+    out[-1, :] = 1
+    out[:, 0]  = 1
+    out[:, -1] = 1
+
+    return out
+
+
 
 if __name__ == "__main__":
     import numpy as np
@@ -235,20 +311,22 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     # Create a sample game map
-    game_map =  GameMap(np.array([
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1],
-        [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, .2, .2, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, .2, .2, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, .2, 0, 0, 0, 1],
-        [1, 0, 0, 1, 1, .2, .2, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    ]), scale=70)
+    # game_map =  GameMap(np.array([
+    #     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    #     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    #     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    #     [1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1],
+    #     [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
+    #     [1, 0, 0, 0, .2, .2, 0, 0, 0, 0, 1],
+    #     [1, 0, 0, 0, .2, .2, 0, 0, 0, 0, 1],
+    #     [1, 0, 0, 0, 0, 0, .2, 0, 0, 0, 1],
+    #     [1, 0, 0, 1, 1, .2, .2, 0, 0, 0, 1],
+    #     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    #     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    #     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    # ]), scale=70)
+    game_map = GameMap(jitter_map(np.zeros((20, 20))), scale=50)
+
 
     # Create the game visualiser
     visualiser = GameVisualiser(game_map)

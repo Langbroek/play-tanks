@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List, Tuple, Generator, Union, Literal, overload
+from typing import Dict, Optional, List, Iterator, Tuple, Union, Literal, overload
 
 from play_tanks_server.exceptions import (MaxPlayersReachedException, PlayerAlreadyInGameException, 
                                           PlayerNotFoundException)
@@ -11,7 +11,7 @@ class PlayerGameState:
 
     def __init__(self, player: Player):
         self.player = player
-        self.tank = Tank(transform=Transform(player.spawn_position, Vec2(0, -1)))
+        self.tank = Tank(transform=Transform(player.spawn_position, Vec2(0, -1)), parent=player)
         self.actions: Dict[A, Optional[Action]] = {
             A.MOVE: None,
             A.AIM: None,
@@ -60,7 +60,7 @@ class PlayerGameStates:
         state = self.players[player]
         state.removal_requested = True
 
-    def players_remove_requested(self) -> Generator[Tuple[Player, PlayerGameState], None, None]:
+    def players_remove_requested(self) -> Iterator[Tuple[Player, PlayerGameState]]:
         """ Iterate over players who have requested removal. """
         for player, state in self.players.items():
             if state.removal_requested:
@@ -78,21 +78,27 @@ class PlayerGameStates:
     def __iter__(self):
         return iter(self.players.values())
     
-    def alive(self) -> Generator[PlayerGameState, None, None]:
+    def alive(self) -> Iterator[PlayerGameState]:
         """ Iterate over players who are alive. """
         for state in self.players.values():
             if state.is_alive:
                 yield state
 
-    def projectiles(self) -> Generator[Projectile, None, None]:
+    def projectiles(self) -> Iterator[Projectile]:
         """ Iterate over all projectiles from all players. """
         for state in self.players.values():
             for projectile in state.tank.projectiles:
                 yield projectile
 
-    def entities(self) -> Generator[Union[Tank, Projectile], None, None]:
+    def tanks(self) -> Iterator[Tank]:
+        """ Iterate over all tanks from all players. """
+        for state in self.alive():
+            yield state.tank
+
+    def entities(self) -> Iterator[Union[Tank, Projectile]]:
         """ Iterate over all entities (tanks and projectiles) from all players. """
         for state in self.players.values():
             yield state.tank
             for projectile in state.tank.projectiles:
                 yield projectile
+

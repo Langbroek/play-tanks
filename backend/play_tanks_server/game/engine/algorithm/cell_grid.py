@@ -28,18 +28,23 @@ class CellGrid(Generic[T]):
     def _item_to_coords(self, item: T) -> Union[COORD_XY, COORD_XYXY]:
         """ Convert an item to coordinates. Must be implemented by subclasses. """
         raise NotImplementedError()
+    
+    def _world_to_cell(self, value: float, eps: float = 1e-6) -> int:
+        """ Convert a world coordinate to a cell index. """
+        return int((value - eps) // self.cell_size)
 
     def _coords_to_cell(self, coords: Union[COORD_XY, COORD_XYXY]) -> Tuple[int, int, int, int]:
         """ Convert coordinates to cell indices. """
         if len(coords) == 2:
             x, y = coords
-            cell_x = int(x // self.cell_size)
-            cell_y = int(y // self.cell_size)
+            cell_x = self._world_to_cell(x)
+            cell_y = self._world_to_cell(y)
             return (cell_x, cell_y, cell_x, cell_y)
         elif len(coords) == 4:
             x1, y1, x2, y2 = coords
-            return (int(x1 // self.cell_size), int(y1 // self.cell_size),
-                    int(x2 // self.cell_size), int(y2 // self.cell_size))
+            x1, y1, x2, y2 = min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
+            return (self._world_to_cell(x1), self._world_to_cell(y1),
+                    self._world_to_cell(x2), self._world_to_cell(y2))
         
     def insert(self, item: T):
         """ Insert an item into the grid. """
@@ -77,6 +82,11 @@ class CellGrid(Generic[T]):
         if no parameters are set, all values in the grid are returned.
         """
         seen = set()
+        if segment is not None:
+            for cell in self._iter_segment_cells(segment):
+                yield from self._iter_unique_items_in_cell(cell, seen)
+            return
+        
         keys = [key] if key is not None else keys
         if keys:
             for k in keys:
@@ -89,11 +99,6 @@ class CellGrid(Generic[T]):
                 coords = self._item_to_coords(val)
                 for cell in self._iter_cells(coords):
                     yield from self._iter_unique_items_in_cell(cell, seen)
-            return
-        
-        if segment is not None:
-            for cell in self._iter_segment_cells(segment):
-                yield from self._iter_unique_items_in_cell(cell, seen)
             return
         
         # Fallback iterate all unique
@@ -112,27 +117,44 @@ class CellGrid(Generic[T]):
 
     def _iter_segment_cells(self, segment: Segment) -> Iterator[CELL]:
         """ Ray cast through the grid cells that the segment passes through. """
-        x1, y1 = int(segment.start.x // self.cell_size), int(segment.start.y // self.cell_size)
-        x2, y2 = int(segment.end.x // self.cell_size), int(segment.end.y // self.cell_size)
-        # Direction
-        dx = x2 - x1
-        dy = y2 - y1
+        # start / end in world space
+        w_x1, w_y1 = segment.start.x, segment.start.y
+        w_x2, w_y2 = segment.end.x, segment.end.y
+        # start / end in grid space
+        g_x1, g_y1 = self._world_to_cell(w_x1), self._world_to_cell(w_y1)
+        g_x2, g_y2 = self._world_to_cell(w_x2), self._world_to_cell(w_y2)
+        # World deltas
+        w_dx = w_x2 - w_x1
+        w_dy = w_y2 - w_y1
 
-        step_x = 1 if dx > 0 else -1
-        step_y = 1 if dy > 0 else -1
+        # Vertical line case
+        if abs(w_dx) < 1e-9:
+            step_y = 1 if w_dy > 0 else -1
+            for y in range(g_y1, g_y2 + step_y, step_y):
+                yield (g_x1, y)
+            return
+        # Horizontal line case
+        if abs(w_dy) < 1e-9:
+            step_x = 1 if w_dx > 0 else -1
+            for x in range(g_x1, g_x2 + step_x, step_x):
+                yield (x, g_y1)
+            return
+        # General case using 2D DDA algorithm
+        step_x = 1 if w_dx > 0 else -1
+        step_y = 1 if w_dy > 0 else -1
 
-        t_delta_x = self.cell_size / abs(dx) if dx != 0 else float('inf')
-        t_delta_y = self.cell_size / abs(dy) if dy != 0 else float('inf')
+        t_delta_x = self.cell_size / abs(w_dx)
+        t_delta_y = self.cell_size / abs(w_dy)
 
-        next_x = (x1 + (1 if step_x > 0 else 0)) * self.cell_size
-        next_y = (y1 + (1 if step_y > 0 else 0)) * self.cell_size
+        next_x = (g_x1 + (1 if step_x > 0 else 0)) * self.cell_size
+        next_y = (g_y1 + (1 if step_y > 0 else 0)) * self.cell_size
 
-        t_max_x = (next_x - segment.start.x) / dx if dx != 0 else float('inf')
-        t_max_y = (next_y - segment.start.y) / dy if dy != 0 else float('inf')
+        t_max_x = (next_x - w_x1) / w_dx
+        t_max_y = (next_y - w_y1) / w_dy
 
-        x, y = x1, y1
+        x, y = g_x1, g_y1
         yield (x, y)
-        while (x, y) != (x2, y2):
+        while (x, y) != (g_x2, g_y2):
             if t_max_x < t_max_y:
                 t_max_x += t_delta_x
                 x += step_x

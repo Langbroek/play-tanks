@@ -127,7 +127,7 @@ class WaypointMap:
                         ):
                             continue
                         # Remove con_a as it is redundant
-                        remove_connections.append(con_a) 
+                        remove_connections.append(con_b) 
                     visited.add(con_a)  
         print('Optimised Waypoint Map: Removed', len(remove_connections), 'redundant connections.')
         for con in remove_connections:
@@ -195,60 +195,20 @@ class WaypointNetwork:
         # Setup waypoint map by finding all posible connections with line of sight.
         self.waypoint_map.clear()
         combinations = itertools.combinations(self.waypoint_grid.values(), 2)
+        non_opt_count = 0
+        opt_count = 0
         for start, end in tqdm.tqdm(combinations, desc="Building Waypoint Map",
                                     total=len(self.waypoint_grid)*(len(self.waypoint_grid)-1)//2):
             segment = Segment(start.position, end.position)
-            hulls = self.hull_grid.values()
-            if pe.segment_intersects_segments_2d(segment, self._hulls):
+            hulls = list(self.hull_grid.values(segment=segment))
+            opt_count += len(hulls)
+            non_opt_count += len(self._hulls)
+            if pe.segment_intersects_segments_2d(segment, hulls):
                 continue
             self.waypoint_map.add(start, end, segment)
+        print(f'Waypoint Map: {len(self.waypoint_map)} connections added. '
+                f'Checked {non_opt_count} hulls ({opt_count} optimised).')  
         self.waypoint_map.optimise()
-
-    def a_star_path_to_any_targets(self, source: Waypoint, 
-                                   targets: List[Waypoint]) -> List[Waypoint]:
-        """ Find s star path to any of the targets. """
-        if source in targets:
-            return [source]
-        
-        open_heap = []
-        heapq.heappush(open_heap, (0, source))
-
-        came_from = {}
-        g_score = {source: 0}
-        closed = set()
-
-        while open_heap:
-            current_cost, current = heapq.heappop(open_heap)
-            # Stop at first target reached
-            if current in targets:
-                return self._reconstruct_path(came_from, current)
-            
-            # Ignore stale entries
-            if current_cost > g_score.get(current, float('inf')):
-                continue
-            closed.add(current)
-
-            for path in self.waypoint_paths.get(current, []):
-                tentative_g_score = g_score[current] + path.cost
-                neighbour = path.get_target(current)
-
-                # Initialize g_score for the neighbor if not already present
-                if neighbour not in g_score:
-                    g_score[neighbour] = float('inf')
-
-                if tentative_g_score < g_score[neighbour]:
-                    came_from[neighbour] = current
-                    g_score[neighbour] = tentative_g_score
-                    f_score = tentative_g_score  # No heuristic
-                    heapq.heappush(open_heap, (f_score, neighbour))
-        return []  # No path found
-
-    def _reconstruct_path(self, came_from: Dict[WaypointConnection, Waypoint], current: Waypoint) -> List[Waypoint]:
-        path = [current]
-        while current in came_from:
-            current = came_from[current]
-            path.append(current)
-        return path[::-1]
 
     def get_line_of_sight_waypoints(self, position: Vec2) -> List[Waypoint]:
         """ 

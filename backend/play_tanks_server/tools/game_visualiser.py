@@ -325,7 +325,7 @@ if __name__ == "__main__":
     #     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     #     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     # ]), scale=70)
-    game_map = GameMap(jitter_map(np.zeros((20, 20))), scale=50)
+    game_map = GameMap(jitter_map(np.zeros((20, 20)), seed=42), scale=50)
 
 
     # Create the game visualiser

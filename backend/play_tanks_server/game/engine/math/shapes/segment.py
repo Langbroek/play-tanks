@@ -10,6 +10,11 @@ class Segment(Vec2Array):
         self.normal = Vec2(self.direction.y, -self.direction.x)
         self.opposite_normal = self.normal * -1
         self.length = self.displacement.magnitude()
+        # Precompute hash
+        self._hash = hash(
+            tuple((tuple(self.start), tuple(self.end))) if tuple(self.start) < tuple(self.end) else 
+            tuple((tuple(self.end), tuple(self.start)))
+        )
 
     @property
     def start(self) -> Vec2:
@@ -32,8 +37,7 @@ class Segment(Vec2Array):
         Orders the points to ensure that lines with the same start and end points 
         have the same hash. 
         """
-        points = sorted((self.start, self.end), key=lambda p: [p[i] for i in range(len(p))])
-        return hash((*points[0], *points[1]))
+        return self._hash
 
     def __repr__(self):
         return str(self)

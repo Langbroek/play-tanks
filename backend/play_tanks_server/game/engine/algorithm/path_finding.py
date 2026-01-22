@@ -205,6 +205,17 @@ class WaypointNetwork:
             non_opt_count += len(self._hulls)
             if pe.segment_intersects_segments_2d(segment, hulls):
                 continue
+            # Include offset checks so paths don't hug corners too tightly.
+            intersects = False
+            for scale in [self._offset, -self._offset]:
+                offset = segment.normal * (scale * .7)
+                perp_segment = segment.translated(offset)
+                perp_hulls = list(self.hull_grid.values(segment=perp_segment))
+                if pe.segment_intersects_segments_2d(perp_segment, perp_hulls):
+                    intersects = True
+                    break
+            if intersects:
+                continue
             self.waypoint_map.add(start, end, segment)
         print(f'Waypoint Map: {len(self.waypoint_map)} connections added. '
                 f'Checked {non_opt_count} hulls ({opt_count} optimised).')  

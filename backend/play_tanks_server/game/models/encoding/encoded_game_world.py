@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 from play_tanks_server.game.models.encoding import EncodedGameObject, EncodedPlayer, EncodedEntity
@@ -13,3 +13,4 @@ class EncodedGameWorld(EncodedGameObject):
     map_size: tuple
     players: List[EncodedPlayer]
     entities: List[EncodedEntity]
+    data: dict = field(default_factory=dict)

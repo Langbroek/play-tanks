@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from play_tanks_server.game.engine.math import Vec2, Transform
 from play_tanks_server.game.objects import DynamicEntity, Projectile
@@ -21,7 +21,7 @@ class Tank(DynamicEntity[TankStats]):
         """ Aim the tank's cannon/barrel towards a target position. """
         self.cannon_direction = direction.normalised()
 
-    def fire(self):
+    def fire(self) -> Optional[None]:
         """ Fire a projectile if ammo is available. """
         if len(self.projectiles) >= self.stats.ammo_capacity:
             return  # No ammo available
@@ -37,6 +37,7 @@ class Tank(DynamicEntity[TankStats]):
             ).advanced(radius)
         )
         self.projectiles.append(projectile)
+        return projectile
 
     def update(self):
         """ Remove any destroyed projectiles before updating. """

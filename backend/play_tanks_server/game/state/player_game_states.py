@@ -11,7 +11,7 @@ class PlayerGameState:
 
     def __init__(self, player: Player):
         self.player = player
-        self.tank = Tank(transform=Transform(player.spawn_position, Vec2(0, -1)), parent=player)
+        self.tank = Tank(parent=player)
         self.actions: Dict[A, Optional[Action]] = {
             A.MOVE: None,
             A.AIM: None,
@@ -19,7 +19,6 @@ class PlayerGameState:
             A.BOMB: None
         }
         self.removal_requested = False
-        self.is_alive: bool = True
 
     @overload
     def pop_action(self, action_type: Literal[A.MOVE, A.AIM]) -> Optional[VectorAction]: ...
@@ -72,6 +71,13 @@ class PlayerGameStates:
             player: state for player, state in self.players.items() if not state.removal_requested
         }
 
+    def reset(self):
+        """ Reset all player game states. """
+        for state in self.players.values():
+            state.tank = Tank(parent=state.player)
+            state.actions.clear()
+            state.removal_requested = False
+
     def __len__(self):
         return len(self.players)
     
@@ -81,7 +87,7 @@ class PlayerGameStates:
     def alive(self) -> Iterator[PlayerGameState]:
         """ Iterate over players who are alive. """
         for state in self.players.values():
-            if state.is_alive:
+            if not state.tank.is_destroyed:
                 yield state
 
     def projectiles(self) -> Iterator[Projectile]:

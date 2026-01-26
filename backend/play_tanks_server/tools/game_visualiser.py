@@ -24,6 +24,7 @@ class GameLoopSignals(QObject):
     # Incoming
     request_move = pyqtSignal()
     request_abort = pyqtSignal()
+    initalise = pyqtSignal()
 
 
 class QGameLoop(QRunnable):
@@ -33,6 +34,7 @@ class QGameLoop(QRunnable):
         self.signals = GameLoopSignals()
         self.signals.request_abort.connect(self._thread_abort)
         self.signals.request_move.connect(self._move_player)
+        self.signals.initalise.connect(self._initalise)
         self.game_loop = GameLoop(game=game, on_update=self._on_update)
         self.player = Player('Earl', Vec2(100, 0))
         self.game_loop.game.join(self.player)
@@ -49,6 +51,10 @@ class QGameLoop(QRunnable):
 
     def _thread_abort(self):
         self.game_loop.stop()
+
+    def _initalise(self):
+        self.game_loop.initialise()
+        self.game_loop.request_update()
 
     def _move_player(self):
         print('move player')
@@ -141,6 +147,23 @@ class GameCanvas(QWidget):
 
         painter.restore()
     
+    def draw_aabbs(self, painter: QPainter):
+        if not (self._data and 'aabb' in self._data.data):
+            return
+        painter.save()
+        pen = QPen(QColor(200, 100, 100), 1, Qt.DashLine)
+        painter.setPen(pen)
+        for aabb_data in self._data.data['aabb']:
+            x1, y1, x2, y2 = aabb_data
+            painter.drawRect(
+                int(self.to_canvas_x(x1)),
+                int(self.to_canvas_y(-y2)),
+                int(x2 - x1),
+                int(y2 - y1)
+            )
+        painter.restore()
+        
+
     def paintEvent(self, a0):
         if self._data is None:
             return
@@ -151,6 +174,8 @@ class GameCanvas(QWidget):
             self.draw_rotated_rect(painter, entity)
 
         self.draw_waypoints(painter)
+
+        self.draw_aabbs(painter)
 
         painter.end()
 
@@ -254,6 +279,10 @@ class GameVisualiser(QWidget):
         panel.addWidget(abort_button)
         panel_group.setLayout(panel)
 
+        initalise_button = QPushButton("Initalise")
+        initalise_button.clicked.connect(self.loop._initalise)
+        panel.addWidget(initalise_button)
+
         request_update = QPushButton("Request Update")
         request_update.clicked.connect(self.loop.game_loop.request_update)
         panel.addWidget(request_update)
@@ -266,14 +295,12 @@ class GameVisualiser(QWidget):
         self.canvas.draw_game(data)
 
 
-def jitter_map(grid, p_block=0.08, p_soft=0.1, seed=None):
+def jitter_map(grid, p_block=0.08, p_soft=0.1):
     """
     grid     : list[list[float|int]] or np.ndarray
     p_block  : probability to turn 0 -> 1
     p_soft   : probability to turn 0 -> 0.2
     """
-    rng = np.random.default_rng(seed)
-
     grid = np.asarray(grid, dtype=float)
     out = grid.copy()
 
@@ -287,7 +314,7 @@ def jitter_map(grid, p_block=0.08, p_soft=0.1, seed=None):
     empty = (out == 0) & interior
 
     # Random values for empty interior cells
-    r = rng.random(out.shape)
+    r = np.array([random.random() for _ in range(np.prod(out.shape))]).reshape(out.shape)
 
     # Apply jitter
     out[(r < p_block) & empty] = 1
@@ -302,13 +329,13 @@ def jitter_map(grid, p_block=0.08, p_soft=0.1, seed=None):
     return out
 
 
-
 if __name__ == "__main__":
     import numpy as np
     app = QApplication(sys.argv)
 
     import logging
     logging.basicConfig(level=logging.INFO)
+    random.seed(42)
 
     # Create a sample game map
     # game_map =  GameMap(np.array([
@@ -325,7 +352,7 @@ if __name__ == "__main__":
     #     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     #     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     # ]), scale=70)
-    game_map = GameMap(jitter_map(np.zeros((20, 20)), seed=69), scale=50)
+    game_map = GameMap(jitter_map(np.zeros((20, 20))), scale=50)
 
 
     # Create the game visualiser

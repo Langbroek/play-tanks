@@ -122,6 +122,11 @@ class DynamicEntity(Entity[DS]):
         base_speed = self.stats.velocity
         direction = self.direction
         self.set_velocity(direction * base_speed)
+
+    def set_position(self, position: Vec2):
+        """ Set the entity's position. """
+        self.transform = self.transform.with_position(position)
+        self.clear_world_cache()
     
     def set_transform(self, transform: Transform):
         """ Set the entity's transform. """

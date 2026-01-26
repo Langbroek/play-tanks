@@ -1,2 +1,2 @@
-from .cell_grid import CellGrid, WaypointGrid, SegmentGrid
+from .cell_grid import CellItem, CellGrid
 from .path_finding import WaypointConnection, WaypointNetwork

@@ -1,12 +1,8 @@
 import time
-import logging
 from typing import Optional
 
 from play_tanks_server.game.objects import GameObject
 from play_tanks_server.game.state import GameWorld
-
-
-logger = logging.getLogger(__name__)
 
 
 class GameLoop(GameObject):
@@ -28,6 +24,7 @@ class GameLoop(GameObject):
         import debugpy
         debugpy.debug_this_thread()
         self.running = True
+        self.game.initialise()
         while self.running:
             start = time.perf_counter()
             if self.last_time is None:
@@ -43,9 +40,13 @@ class GameLoop(GameObject):
             elapsed = time.perf_counter() - start
             if elapsed < self.delta_time:
                 time.sleep(self.delta_time - elapsed)
-            else:
-                logger.warning(f"Game {str(self)} is running behind schedule by "
-                               f"{elapsed - self.delta_time:.4f} seconds")
+            elif False:
+                self.logger.warning(f"Game {str(self)} is running behind schedule by "
+                                    f"{elapsed - self.delta_time:.4f} seconds")
 
     def stop(self):
         self.running = False
+        self.game.reset()
+
+    def initialise(self):
+        self.game.initialise()

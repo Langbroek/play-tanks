@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Optional, Generic, List
+from typing import Optional, Generic, Tuple
 from typing_extensions import Self, TypeVar
 
-from play_tanks_server.game.engine.math import Transform
+from play_tanks_server.game.engine.math.vectors import Vec2
+from play_tanks_server.game.engine.math import Vec2
 from play_tanks_server.game.engine.math.shapes import Rectangle
 from play_tanks_server.game.engine.collisions import Intersections2D
 from play_tanks_server.game.objects import Entity
@@ -17,7 +18,7 @@ class CollisionEvent(Generic[T]):
     aabb: Rectangle
     time: float = 0.0
     intersections: Intersections2D = field(default_factory=Intersections2D)
-    transform: Optional[Transform] = None
+    velocity: Optional[Vec2] = None
     static: bool = False
     
     @property
@@ -30,7 +31,7 @@ class CollisionEvent(Generic[T]):
         """ Returns if the collision intersection is stale. """
         if self.time < 0:
             return True
-        return self.time_at_intersection == self.time
+        return self.time_at_intersection == self.time        
 
     def __lt__(self, other: Self) -> bool:
         if self.time_at_intersection == other.time_at_intersection:
@@ -44,3 +45,7 @@ class CollisionEvent(Generic[T]):
 
     def __hash__(self) -> int:
         return hash(id(self))
+    
+    def to_cell_coords(self) -> Tuple[int, int, int, int]:
+        return (int(self.aabb.x1), int(self.aabb.y1), 
+                int(self.aabb.x2), int(self.aabb.y2))

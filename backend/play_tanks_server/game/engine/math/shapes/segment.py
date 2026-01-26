@@ -44,3 +44,6 @@ class Segment(Vec2Array):
 
     def __str__(self):
         return f"Segment(Start: {self.start}, End: {self.end})"
+    
+    def to_cell_coords(self) -> tuple[int, int, int, int]:
+        return (int(self.start.x), int(self.start.y), int(self.end.x), int(self.end.y))

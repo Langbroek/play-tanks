@@ -23,6 +23,7 @@ class Projectile(DynamicEntity[ProjectileStats]):
             if not self.can_bounce():
                 self.destroy()
         elif isinstance(entity, DynamicEntity):
+            return  # for now
             self.destroy()
 
     def set_velocity(self, velocity):

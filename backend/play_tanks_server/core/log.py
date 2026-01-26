@@ -2,6 +2,7 @@ import logging
 import time
 
 from typing import Dict, Optional, Generator, Tuple
+from typing_extensions import Self
 
 
 def kwargs_to_string(**kwargs) -> str:
@@ -9,90 +10,176 @@ def kwargs_to_string(**kwargs) -> str:
     return ", ".join(f"{key}={value}" for key, value in kwargs.items())
 
 
-def get_function_stats(func, *args, **kwargs) -> str:
+def func_to_string(func, *args, log_params: bool = False, **kwargs) -> str:
     """ Get the function name with parameters for logging. """
+    if not log_params:
+        return func.__name__ + "()"
     return f"{func.__name__}({', '.join(map(str, args))}, {kwargs_to_string(**kwargs)})"
 
 
-class LogItem:
-    
-    def __init__(self, ctx_key: str = "", message: str = ""):
-        self.ctx_key = ctx_key
-        self.message = message
-        self._counter = 0
-        self._total_time = 0.0
-        self._start_time = 0.0
-    
-    def set_message(self, message: str):
-        """ Update the log message. """
-        self.message = message
+class LogTimer:
 
-    def log_message(self, message: str):
-        """ Set log message and increment counter. """
-        self.message = message
-        self._counter += 1
+    def __init__(self, time_limit: float = 1e-6):
+        self._start_time: Optional[float] = None
+        self._total_time: float = 0.0
+        self._max_time: float = 0.0
+        self._min_time: float = float('inf')
+        self._timer_count: int = 0
+        self._enabled = False
+        self._time_limit = time_limit
 
-    def format_log_message(self, reset: bool = True) -> str:
-        """ Formats the log message with timing info and resets counters if needed. """
-        if self._total_time > 0:
-            avg_time = self._total_time / self._counter
-            formatted = (
-                f"[{self.ctx_key}] {self.message}, Total Time: {self._total_time:.6f}s, "
-                f"Avg Time: {avg_time:.6f}s"
-            )
-        else:
-            formatted = f"[{self.ctx_key}] {self.message}"
-        if reset:
-            self._counter = 0
-            self._total_time = 0.0
-        return formatted
-    
-    def increment(self):
-        """ Increment the counter by one. """
-        self._counter += 1
-
-    def can_log(self, every_n: int) -> bool:
-        return every_n > 0 and self._counter % every_n == 0
-
-    def __enter__(self):
+    def start(self):
         self._start_time = time.perf_counter()
+        self._enabled = True
+    
+    def stop(self):
+        if not self._enabled or self._start_time is None:
+            return
+        elapsed = time.perf_counter() - self._start_time
+        self._total_time += elapsed
+        self._max_time = max(self._max_time, elapsed)
+        self._min_time = min(self._min_time, elapsed)
+        self._timer_count += 1
+
+    def reset(self):    
+        self._start_time = None
+        self._total_time = 0.0
+        self._max_time = 0.0
+        self._min_time = float('inf')
+        self._timer_count = 0
+
+    def __str__(self) -> str:
+        if self._timer_count <= 0 or self._total_time < self._time_limit:
+            return ""
+        fps = self._timer_count / self._total_time if self._total_time > 0 else 0.0
+        fps_str = f"({fps:.2f} fps) " if fps > 0 else ""
+        avg_time = self._total_time / self._timer_count if self._timer_count > 0 else 0.0
+        return f" - {fps_str} (total, avg, max, min) time: | {self._total_time:.6f}s | "\
+               f"{avg_time:.6f}s | {self._max_time:.6f}s | {self._min_time:.6f}s |"        
+
+
+class LogContext:
+    def __init__(self, name: str):
+        self.name = name
+        self._contexts: Dict[str, LogContext] = {}
+        self._title = name
+        self._log_count = 0
+        self._timer = LogTimer()
+    
+    def get(self, name: str) -> Self:
+        if name == "":
+            return self  # Main context
+        if "." in name:
+            parts = name.split(".")
+            ctx = self
+            for part in parts:
+                ctx = ctx.get(part)
+            return ctx
+
+        return self._contexts.setdefault(name, LogContext(name))
+    
+    def set_title(self, title: str):
+        """ Set title for this context. """
+        self._title = title
+
+    def can_log(self, count: int) -> bool:    
+        return self._log_count >= count
+
+    def increment(self):
+        """ Increment log counter for this context. """
+        self._log_count += 1
+
+    def reset(self):
+        """ Reset log counter for this context and all sub-contexts. """
+        self._log_count = 0
+        self._timer.reset()
+        for ctx in self._contexts.values():
+            ctx.reset()
+
+    def format_log_message(self, index: int = 0) -> str:
+        """ Format log message for this context and all sub-contexts. """
+        indent = "  " * index
+        message = f"{indent} Func {self._title}{str(self._timer)}"
+        if len(self._contexts) == 0:
+            return message
+        message += ":\n"
+        for i, ctx in enumerate(self._contexts.values()):
+            message += ctx.format_log_message(index + 1)
+            if i < len(self._contexts) - 1:
+                message += "\n"
+        return message
+    
+    def __enter__(self):
+        self._timer.start()
         return self
     
     def __exit__(self, exc_type, exc_value, traceback):
-        self._total_time += (time.perf_counter() - self._start_time)
-        self._counter += 1
+        self._timer.stop()
 
 
-class ContextLogger(logging.Logger):
+class ContextLogger:
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._log_context: Dict[str, LogItem] = {}
+    def __init__(self, name: str):
+        self._logger = logging.getLogger(name)
+        self._log_context = LogContext(name)
+        self._active_contexts = []
     
-    def context(self, key: str, message: Optional[str] = None) -> LogItem:
+    def activate_context(self, context: str, sub_context: str) -> LogContext:
         """ Get context key """
-        item = self._log_context.setdefault(key, LogItem(ctx_key=key))
-        if message is not None:
-            item.set_message(message)
-        return item
+        parent = self._log_context.get(context)
+        child = parent.get(sub_context)
+        active_context = f"{context}.{sub_context}" if context != "" else sub_context
+        self._active_contexts.append(active_context)
+        return child
     
-    def contexts(self, key: str) -> Generator[LogItem, None, None]:
-        """ Generator for all context items that start with the given key. """
-        if key == "":
-            return None
-        for item in self._log_context.values():
-            if item.ctx_key.startswith(key):
-                yield item
+    def deactivate_context(self, context: str, sub_context: str):
+        """ Deactivate context key """
+        active_context = f"{context}.{sub_context}" if context != "" else sub_context
+        if active_context in self._active_contexts:
+            self._active_contexts.remove(active_context)
 
-    def log_context(self, key: str = ""):
+    def info(self, message: str):
+        """ Log an info message. """
+        self._logger.info(message)
+
+    def warning(self, message: str):
+        """ Log a warning message. """
+        self._logger.warning(message)
+    
+    def error(self, message: str):
+        """ Log an error message. """
+        self._logger.error(message)
+
+    def exception(self, message: str):
+        """ Log an exception message. """
+        self._logger.exception(message)
+
+    def log_context(self, context: str = "", every_n: int = 1):
         """ Log all context items that start with the given key. """
-        item = self._log_context.get(key)
-        if item is not None:
-          self.info(item.format_log_message())
-        for item in self.contexts(key):
-            if item.ctx_key == key:
-                continue  # Ignore parent.
-            self.info(item.format_log_message())
+        ctx = self._log_context.get(context)
+        if ctx.can_log(every_n):
+            self.info(
+                ctx.format_log_message()
+            )
+            ctx.reset()
+        else:
+            ctx.increment()
+
+    def time(self, context: str, parent_context: Optional[str] = None) -> LogTimer:
+        """ 
+        Start a timer for the given context. Providing None for parent will find the active 
+        parent from the context tree. If empty string is provided it will use the root context. 
+        Otherwise it will use the provided parent context. 
+        """
+        if parent_context == "" or len(self._active_contexts) == 0:
+            parent = self._log_context
+        elif parent_context is not None:
+            parent = self._log_context.get(parent_context)
+        else:
+            parent = self._log_context.get(self._active_contexts[-1])
+        ctx = parent.get(context)
+        ctx._timer.start()
+        return ctx._timer
 
 
 logger = ContextLogger(__name__)
@@ -129,30 +216,34 @@ def get_logger_and_args(*args) -> Tuple[ContextLogger, tuple]:
 def with_function_logger(func=None, 
                          context: str = "",
                          log_every_n: int = -1,
-                         timed: bool = True):
+                         log_params: bool = True,
+                         timed: bool = True,
+                         disabled: bool = False):
     """ 
       Decorator to add context logging to methods.   
       if message is None function name will be used.
     """
-    def decorator(func):
+    def decorator(func):            
+        if disabled:
+            return func
         def wrapper(*args, **kwargs):
             nonlocal context
-            logger_, f_args = get_logger_and_args(args)
-            if context == "":
-                context = func.__name__
-            message = get_function_stats(func, *f_args, **kwargs)
-            log_item = logger_.context(context, message)
+            logger_, f_args = get_logger_and_args(*args)
+            sub_context = func.__name__
+            func_title = func_to_string(func, *f_args, log_params=log_params, **kwargs)
+            log_ctx = logger_.activate_context(context, sub_context)
+            log_ctx.set_title(func_title)
             if timed:
-                with log_item:
+                with log_ctx:
                     result = func(*args, **kwargs)
-                log_item.set_message(message)
             else:
                 result = func(*args, **kwargs)
-                log_item.log_message(message)
-            if log_item.can_log(log_every_n):
-                logger.log_context(context)
-            if log_every_n > 0 and log_item._counter % log_every_n == 0:
-                logger_.log_context(context)
+            if context != "" and log_every_n > 0:
+                # is main context.
+                logger_.log_context(context, log_every_n)
+            elif context == "":
+                logger_.log_context(sub_context, log_every_n)
+            logger_.deactivate_context(context, sub_context)
             return result
         return wrapper
     if func is None:

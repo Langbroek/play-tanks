@@ -36,22 +36,31 @@ class Intersections2D(List[Intersection2D]):
     
     def __init__(self, initial_time: float = -1.0):
         super().__init__()
-        self.time = initial_time
+        self._time = initial_time
+
+    @property
+    def time(self) -> float:
+        """ Returns the time until intersection occurs. """
+        if len(self) == 0:
+            return -1.0
+        if len(self) > 0:
+            return 1.0  # return max time if intersections exist
+        return self._time
     
     def add(self, intersection: Intersection2D):
         """ Adds an intersection to the collection. """
         if not intersection.valid:
             return
-        if intersection.time < self.time:
+        if intersection.time < self._time or self._time < 0:
             self[:] = [intersection]
-            self.time = intersection.time
-        elif intersection.time == self.time and intersection.target is not None:
+            self._time = intersection.time
+        elif intersection.time == self._time and intersection.target is not None:
             self.append(intersection)
     
     def clear(self):
         """ Clears all intersections. """
         super().clear()
-        self.time = -1.0 
+        self._time = -1.0 
     
     def includes(self, entity: Entity) -> bool:
         """ Checks if the collection includes an intersection with the given entity. """
@@ -60,3 +69,13 @@ class Intersections2D(List[Intersection2D]):
     def empty(self) -> bool:
         """ Checks if there are no intersections. """
         return len(self) == 0
+    
+    def remove_by_target(self, target: Entity):
+        """ Remove intersections by target entity. """
+        self[:] = [inter for inter in self if inter.target is not target]
+        if len(self) == 0:
+            self._time = -1.0
+
+    def set_time(self, time: float):
+        """ Sets the intersection time. """
+        self._time = time

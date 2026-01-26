@@ -1,10 +1,9 @@
-import heapq
 import itertools
 import tqdm
 
 from typing import Dict, List, Tuple, Iterator
 
-from play_tanks_server.game.engine.algorithm import WaypointGrid, SegmentGrid
+from play_tanks_server.game.engine.algorithm import CellGrid
 from play_tanks_server.game.engine.physics import engine as pe
 from play_tanks_server.game.engine.math import Vec2, Transform, Waypoint
 from play_tanks_server.game.engine.math.shapes import Segment
@@ -166,8 +165,8 @@ class WaypointNetwork:
                  cell_size: float = 20, threshold: float = 2.0, 
                  collinear_angle: float = 60.0):
         self._hulls = hulls
-        self.hull_grid = SegmentGrid(cell_size, hulls)
-        self.waypoint_grid = WaypointGrid(cell_size)
+        self.hull_grid = CellGrid[Segment](cell_size, hulls)
+        self.waypoint_grid = CellGrid[Waypoint](cell_size)
         self.waypoint_map = WaypointMap(collinear_angle)
 
         self._offset = offset

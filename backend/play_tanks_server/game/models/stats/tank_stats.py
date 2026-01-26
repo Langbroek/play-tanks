@@ -16,7 +16,7 @@ class TankStats(DynamicStats):
     rotation_speed: float = 0.0
     armour: float = 0.0
 
-    ammo_capacity: int = 5
+    ammo_capacity: int = 20
     ammo_cooldown: int = 5  # in seconds.
 
     projectile_stats: ProjectileStats = field(default_factory=ProjectileStats)

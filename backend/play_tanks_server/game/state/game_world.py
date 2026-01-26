@@ -21,12 +21,14 @@ class GameWorld(GameObject):
         super().__init__()
         self.init_logger()  # Initialise logger after GameObject init
         self._encoded = None
+        self._encoded_aabb = []
         self._lock = threading.Lock()
         self.max_players = max_players
 
         self.players = PlayerGameStates(max_players)
         self.map = map
-
+        self.collision = CollisionGridHeap(cell_size=10)
+        
         self.game_time = 0.0
         self.game_tick = -1
         
@@ -69,7 +71,32 @@ class GameWorld(GameObject):
         self.players.remove(player)
 
     @with_world_lock
+    @with_exception_context
     @with_function_logger
+    def initialise(self):
+        """ Initialise the game world to start state. """
+        self.game_time = 0.0
+        self.game_tick = -1
+        self.players.reset()
+        self.collision.reset()
+        self._encoded = None  # Invalidate cached encoded state
+        spawn_points = self.map.get_spawn_points(len(self.players))
+        for state in self.players.players.values():
+            state.tank.set_position(spawn_points.pop())
+            self.collision.add_entity(state.tank)
+
+    @with_world_lock
+    @with_exception_context
+    @with_function_logger
+    def reset(self):
+        """ Reset the game world to initial state. """
+        self.game_time = 0.0
+        self.game_tick = -1
+        self.players.reset()
+        self._encoded = None  # Invalidate cached encoded state
+
+    @with_world_lock
+    @with_function_logger(disabled=True)
     def handle_player_action(self, player: Player, action: Action):
         """ Handle an action from a player. """
         state = self.players.players.get(player)
@@ -118,40 +145,36 @@ class GameWorld(GameObject):
     @with_function_logger(context="game_update")
     def _handle_entity_movement(self, delta_time: float):
         """ Handle projectile movement. """
-        heap = CollisionGridHeap(cells_x=50, cells_y=50, delta_time=delta_time)
         # First add all aabb with movement to the heap
-        for source in self.players.entities():
-            heap.add_entity(source)
-        # Add static map objects to the heap
-        for wall in self.map.walls:
-            heap.add_entity(wall, static=True)
+        timer = self.logger.time('heap_init_dynamic')
+        self.collision.update_events(delta_time)
+        timer.stop()
         # Resolve movements
-        while heap.has_events():
-            event = heap.pop_event()
+        process_timer = self.logger.time('process_events')
+        for event in self.collision.heap():
             source = event.entity
             if source.is_destroyed:
                 continue
+            timer = self.logger.time('process_event_stage1')
+
             # Move entity to collision point
-            transform = event.transform
-            if transform is not None:
-                source.set_transform(transform)
-                heap.update_event_time(event)
-                heap.recompute_events(event, 'block')
-            else:
-                source.base_velocity()  # Reset to base velocity if no movement
+            if event.velocity is not None:
+                source.set_velocity(event.velocity)
+                self.collision.uncollide(event)
+
             # Apply damage
             source_hit = False
             for intersection in event.intersections:
                 intersection.target.apply_damage(source)
                 source.apply_damage(intersection.target)  # Take damage from target.
                 source_hit = True
+            timer.stop()
 
-            # Check if entity is alive otherwise stop
-            if source.is_destroyed:
+            # Check if entity is alive or has time remaining
+            if source.is_destroyed or (1 - event.time) <= 0:
                 continue
-            # Check if entity has remaining movement time
-            if 1 - event.time <= 0:
-                continue
+
+            timer = self.logger.time('process_event_stage2')
             # Recompute movement collision
             if source_hit and isinstance(source, Projectile):
                 # Projectile should bounce on collision
@@ -159,28 +182,28 @@ class GameWorld(GameObject):
                 source.set_velocity(velocity)
             elif source_hit and isinstance(source, Tank):
                 # Tank should move in direction that is not stuck.
-                velocity = pe.calculate_tank_slide(source, heap.blocked_intersections(event))
+                velocity = pe.calculate_tank_slide(source, event.intersections)
                 source.set_velocity(velocity)
-
-            # Update aabb
-            heap.update_event_aabb(event)
+            timer.stop()
+            
+            timer = self.logger.time('process_event_stage3')
+            # Update the aabb
+            self.collision.update_event(event, delta_time)
             # Find earliest intersection.
-            intersections = Intersections2D(1.0)
+            event.intersections.set_time(1.0)  # Set to max time
             # Only check for collisions if entity is moving
             if source.velocity.magnitude() > 0:
-                for target_event in heap.non_blocked_grid_events(event):
-                    intersection = pe.calculate_entity_intersection(source, target_event.entity, 
+                for target_event in self.collision.events(event):
+                    if event.intersections.includes(target_event.entity):
+                        continue  # Ignore already processed intersections
+                    intersection = pe.calculate_entity_intersection(source, target_event.entity,
                                                                     source_time=event.time,
                                                                     target_time=target_event.time,
                                                                     scalar=delta_time)
-                    
-                    intersections.add(intersection)
-            heap.update_event_intersections(event, intersections)
-            # If we hit something, recompute all events that relied on this entity
-            if source_hit:
-                heap.recompute_events(event, 'hit')  
-            heap.insert_event(event)
-
+                    event.intersections.add(intersection)
+            timer.stop()
+            self.collision.insert_event(event, delta_time)
+        process_timer.stop()
 
     @with_function_logger(context="game_update")
     def _handle_tank_barrel_rotation(self, delta_time: float):
@@ -198,7 +221,9 @@ class GameWorld(GameObject):
             action = state.pop_action(A.SHOOT)
             if action is None:
                 continue
-            state.tank.fire()
+            projectile = state.tank.fire()
+            if projectile is not None:
+                self.collision.add_entity(projectile)
 
     @with_function_logger(context="game_update")
     def _handle_entity_updates(self, delta_time: float):
@@ -206,14 +231,18 @@ class GameWorld(GameObject):
         for state in self.players:  # Iterate over all players, including destroyed ones
             state.tank.update()
             state.tank.clear_velocity()  # stop movement until user input.
-            state.is_alive = not state.tank.is_destroyed
+            if state.tank.is_destroyed:
+                self.collision.remove_entity(state.tank)
+            for projectile in state.tank.projectiles:
+                if projectile.is_destroyed:
+                    self.collision.remove_entity(projectile)
 
     @with_function_logger(context="game_ai")
     def _handle_ai_players(self, delta_time: float):
         """ Handle AI player actions. """
         for state in self.players.alive():
             player = state.player
-            if not isinstance(player, PlayerAI):
+            if not isinstance(player, PlayerAI) or True:
                 continue
             player.computer.update([t for t in self.players.tanks() if t != state.tank])
             direction = player.computer.target_direction()
@@ -234,6 +263,9 @@ class GameWorld(GameObject):
                     wall.encode() for wall in self.map.walls
                 ] + [
                     entity.encode() for entity in self.players.entities()
-                ]
+                ],
+                data={
+                    'aabb': self._encoded_aabb
+                }
             )
         return self._encoded

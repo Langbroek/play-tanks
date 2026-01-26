@@ -1,4 +1,7 @@
 import math
+import numpy as np
+import random
+
 from typing import List, Tuple, Optional, Iterable
 
 from play_tanks_server.game.engine.collisions import Intersection2D
@@ -425,4 +428,57 @@ def calculate_map_concave_corners(walls: List[Wall], map_aab: Rectangle) -> List
     return waypoints
 
             
+def generate_random_map_points(map: np.ndarray, radius: float, limit: int = 16,
+                               k: int = 20) -> List[Tuple[int, int]]:
+    """ 
+    Generates random valid map points for spawning.
+    """
+    random_point = lambda: tuple(random.choice(np.argwhere(map == 0)))
 
+    height, width = map.shape
+    valid_points = [random_point()]
+    radius_sq = radius ** 2
+
+    def is_valid_point(point: Tuple[int, int]) -> bool:
+        if not (0 <= point[0] < height and 0 <= point[1] < width):
+            return False  # Out of bounds
+        if map[point] != 0:
+            return False  # Not valid terrain
+        for p in valid_points:
+            dist_sq = (point[0] - p[0]) ** 2 + (point[1] - p[1]) ** 2
+            if dist_sq < radius_sq:
+                return False  # Too close to existing point
+        return True
+    
+    attempts = 0
+
+    while len(valid_points) < limit and attempts < 10:
+        if len(valid_points) == 0:
+            valid_points.append(random_point())  # Re-add a random point if none exist
+        source_point = random.choice(valid_points)
+        found = False
+
+        for _ in range(k):
+            angle = random.uniform(0, 2 * math.pi)
+            distance = random.uniform(radius, radius * 2)
+            target_point = (
+                int(source_point[0] + distance * math.sin(angle)), 
+                int(source_point[1] + distance * math.cos(angle))
+            )
+            if not is_valid_point(target_point):
+                continue  # Not valid
+            found = True
+            valid_points.append(target_point)
+            break
+        
+        if not found:
+            attempts += 1
+            # Remove source if we can't find new points from it
+            valid_points.remove(source_point)
+        else:
+            attempts = 0
+
+    if len(valid_points) < limit:
+        raise RuntimeError("Could not generate enough valid map points.")
+    random.shuffle(valid_points)
+    return valid_points

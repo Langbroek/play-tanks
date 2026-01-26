@@ -1,4 +1,5 @@
 import numpy as np
+import random
 
 from typing import List, Tuple
 
@@ -18,19 +19,31 @@ class GameMap:
     def __init__(self, input_array: np.ndarray, scale: float = 7.7, cannon_height: float = 0.5):
         self.walls: List[Wall] = []
         self._map = input_array
-        self._scale = scale
         self.cannon_height = cannon_height
+        self.offset = Vec2(-self._map.shape[1] / 2, -self._map.shape[0] / 2)
+        self.scale = Vec2(scale, -scale)  # Invert y-axis
+        self.aabb = Rectangle(self.offset.x, self.offset.y, -self.offset.x, -self.offset.y) * self.scale
+        self.size = (int(self._map.shape[1] * scale), int(self._map.shape[0] * scale))
         self._initialise_collisions()
-        self.network = WaypointNetwork((((self._scale ** 2) * 2) ** .5) / 2, self.hulls(), self.corners)
-
-    @property
-    def size(self) -> Tuple[int, int]:
-        """ Return the size of the map in pixels. """
-        return int(self._map.shape[1] * self._scale), int(self._map.shape[0] * self._scale)
+        self.network = WaypointNetwork((((scale ** 2) * 2) ** .5) / 2, self.hulls(), self.corners)
     
     def hulls(self) -> List[Segment]:
         """ Returns all wall hulls for collision detection. """
         return [hull for wall in self.walls for hull in wall.hit_box.hulls()]
+    
+    def get_spawn_points(self, count: int) -> List[Vec2]:
+        """ 
+        Returns a list of valid spawn points on the map. 
+        Creates a rectangle offset from the full map size. Then divides the perimeter
+        into equal segments based on count. Then tries to find a valid spawn point on each segment.
+        """
+        # Pick a start point randomly for algorithm.
+        spawnpoints = pe.generate_random_map_points(self._map, min(self._map.shape) * .2, 12)
+        grid_offset = .5
+        return [
+            (Vec2(point[0], point[1]) + grid_offset + self.offset) * self.scale
+            for point in spawnpoints[:count]
+        ]
 
     def _initialise_collisions(self):
         """
@@ -38,15 +51,12 @@ class GameMap:
         center of map is 0, 0
         """
         self.walls.clear()
-        offset = Vec2(-self._map.shape[1] / 2, -self._map.shape[0] / 2)
-        scale = Vec2(self._scale, -self._scale)  # Invert y-axis
-        self.aabb = Rectangle(offset.x, offset.y, -offset.x, -offset.y) * scale
 
         low_obstacles = (self._map > 0) & (self._map <= self.cannon_height)
         high_obstacles = self._map > self.cannon_height
         for obstacle_array, low_flag in [(low_obstacles, True), (high_obstacles, False)]:
             contours = array_to_rectangles(obstacle_array)
-            self.walls.extend([Wall(rect.translated(offset) * scale, low_flag) 
+            self.walls.extend([Wall(rect.translated(self.offset) * self.scale, low_flag) 
                                     for rects in contours.values() for rect in rects])
             
         self.corners = pe.calculate_map_concave_corners(self.walls, self.aabb)
